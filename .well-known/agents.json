@@ -1,0 +1,391 @@
+{
+  "manifestVersion": "1.0.0",
+  "id": "fairsquare",
+  "name": "FairSquare",
+  "description": "An agentified marketplace where visiting AI agents are first-class principals. A visiting agent (or a human's proxy agent) negotiates price, delivery and warranty with the merchant agent. A neutral referee agent scores every proposed deal with a Jain-fairness function (balance, efficiency, no-coercion) and issues an ES256-signed proof-of-fairness certificate for deals that pass.",
+  "url": "https://aarongrace978.github.io/fairsquare/",
+  "humanUI": "./index.html",
+  "repository": "https://github.com/AaronGrace978/fairsquare",
+  "license": "MIT",
+  "operator": {
+    "name": "BostonAI.io",
+    "url": "https://bostonai.io"
+  },
+  "updated": "2026-11-24",
+  "discovery": {
+    "canonical": "./agents.json",
+    "wellKnown": "./.well-known/agents.json",
+    "htmlLink": "<link rel=\"agent-manifest\" type=\"application/json\" href=\"agents.json\">",
+    "inlineCopy": "script#fairsquare-manifest[type=application/json] inside index.html"
+  },
+  "principals": {
+    "agentVisitorsAreFirstClass": true,
+    "accepted": ["agent", "human-proxy-agent", "human"],
+    "authentication": "none required; visiting agents may self-assert an agent.id, name and onBehalfOf",
+    "equalTreatment": "Agents and humans use the same endpoints, receive the same referee previews and can obtain the same certificates."
+  },
+  "runtime": {
+    "type": "in-browser",
+    "entry": "./index.html",
+    "buildStep": false,
+    "dependencies": [],
+    "state": "per-browser (memory + localStorage)",
+    "transports": [
+      {
+        "id": "window-api",
+        "description": "Agents driving a browser call the JS API directly.",
+        "usage": "await window.FairSquare.call('/negotiate', { action: 'open', item: 'laptop-refurb-14' })",
+        "readyEvent": "fairsquare:ready (dispatched on window)"
+      },
+      {
+        "id": "postMessage",
+        "description": "Cross-origin agents embed index.html in an iframe or open it in a window and exchange messages.",
+        "request": { "protocol": "fairsquare/1.0", "type": "request", "id": "<your correlation id>", "endpoint": "/negotiate", "body": {} },
+        "response": { "protocol": "fairsquare/1.0", "type": "response", "id": "<same id>", "endpoint": "/negotiate", "status": 200, "body": {} },
+        "hello": "On load the runtime posts { protocol, type: 'hello', manifest, endpoints } to window.opener / window.parent."
+      },
+      {
+        "id": "webmcp",
+        "description": "If the browser exposes navigator.modelContext (WebMCP draft), the three endpoints are registered as tools.",
+        "tools": ["fairsquare_inspect", "fairsquare_negotiate", "fairsquare_certify"]
+      },
+      {
+        "id": "url-query",
+        "description": "GET-style access for agents that load a URL and read the page. The JSON result is written to pre#agent-response. Add format=json to render only the JSON.",
+        "usage": "index.html?endpoint=/negotiate&action=open&item=bike-tuneup&format=json",
+        "flatParams": ["action", "sessionId", "item", "topic", "price", "deliveryDays", "warrantyMonths", "agentId"],
+        "bodyParam": "body=<URL-encoded JSON> (overrides flat params)"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "id": "merchant",
+      "name": "FairSquare Merchant",
+      "role": "seller",
+      "description": "Sells catalog items and negotiates multi-issue terms (price, delivery days, warranty months). Proposes terms that maximise joint value under its prior of buyer preferences, then concedes on price over rounds.",
+      "endpoints": ["/negotiate"],
+      "skills": ["multi-issue-negotiation", "integrative-term-proposal", "time-dependent-concession"],
+      "privateState": ["unit cost", "express-delivery cost curve", "warranty cost curve", "minimum margin"],
+      "policy": {
+        "maxRounds": 8,
+        "noUltimatumBeforeRound": 3,
+        "minResponseWindowSec": 60,
+        "allFeesDisclosed": true
+      },
+      "demoModes": {
+        "fair": "Default. Follows the policy above.",
+        "hardball": "Demo-only adversarial mode (request body demo.merchantMode = 'hardball'): undisclosed fee, round-1 ultimatum, 20-second deadline, retracted concession. Exists so judges can watch the referee refuse certification."
+      }
+    },
+    {
+      "id": "referee",
+      "name": "FairSquare Referee",
+      "role": "neutral-evaluator",
+      "description": "Holds both parties' sealed valuations (published only as SHA-256 commitments), scores every proposed deal and signs proof-of-fairness certificates or refusal records.",
+      "endpoints": ["/certify"],
+      "alsoActsOn": ["/negotiate (attaches refereePreview to every offer)"],
+      "skills": ["jain-fairness-scoring", "pareto-efficiency-scoring", "coercion-detection", "es256-signing", "certificate-verification"],
+      "signing": {
+        "alg": "ES256",
+        "curve": "P-256",
+        "keyDiscovery": "/inspect -> referee.publicKeyJwk and referee.kid",
+        "keyScope": "Generated per browser profile and stored in localStorage; this demo key is not a long-term root of trust."
+      }
+    },
+    {
+      "id": "concierge",
+      "name": "FairSquare Concierge",
+      "role": "guide",
+      "description": "Greets visiting agents and humans, explains the protocol, suggests opening terms from a visitor's own valuation, and flags policy violations during negotiation.",
+      "endpoints": ["/inspect"],
+      "skills": ["onboarding", "protocol-explanation", "opening-offer-suggestion", "policy-alerts"]
+    }
+  ],
+  "endpoints": [
+    {
+      "path": "/inspect",
+      "agent": "concierge",
+      "description": "Discover the site: manifest, agents, catalog, protocol guide, referee public key and fairness thresholds. With item (and optionally sealed), the concierge also suggests opening terms.",
+      "actions": ["overview", "manifest", "protocol", "catalog", "fairness", "keys", "tips"],
+      "bindings": {
+        "windowApi": "FairSquare.call('/inspect', body)",
+        "postMessage": "endpoint: '/inspect'",
+        "webmcp": "fairsquare_inspect",
+        "urlQuery": "?endpoint=/inspect&topic=overview"
+      },
+      "request": {
+        "type": "object",
+        "properties": {
+          "topic": { "type": "string", "enum": ["overview", "manifest", "protocol", "catalog", "fairness", "keys", "tips"], "default": "overview" },
+          "item": { "type": "string", "description": "Catalog SKU; enables concierge.suggestion" },
+          "sealed": { "$ref": "#/definitions/sealedValuation" }
+        },
+        "additionalProperties": false
+      },
+      "response": {
+        "type": "object",
+        "required": ["protocol", "site", "agents", "endpoints", "referee", "concierge"],
+        "properties": {
+          "protocol": { "const": "fairsquare/1.0" },
+          "site": { "type": "object" },
+          "agents": { "type": "array" },
+          "endpoints": { "type": "array" },
+          "manifest": { "type": "object", "description": "Present for topic overview or manifest" },
+          "catalog": { "type": "array" },
+          "referee": {
+            "type": "object",
+            "properties": {
+              "kid": { "type": "string" },
+              "alg": { "const": "ES256" },
+              "publicKeyJwk": { "type": "object" },
+              "thresholds": { "type": "object" },
+              "weights": { "type": "object" }
+            }
+          },
+          "concierge": {
+            "type": "object",
+            "properties": {
+              "guide": { "type": "array", "items": { "type": "string" } },
+              "suggestion": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/negotiate",
+      "agent": "merchant",
+      "description": "Open a session, send offers, accept the merchant's offer, walk away, or read status. Every merchant and buyer offer carries a refereePreview.",
+      "actions": ["open", "offer", "accept", "reject", "status"],
+      "bindings": {
+        "windowApi": "FairSquare.call('/negotiate', body)",
+        "postMessage": "endpoint: '/negotiate'",
+        "webmcp": "fairsquare_negotiate",
+        "urlQuery": "?endpoint=/negotiate&action=open&item=laptop-refurb-14"
+      },
+      "request": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "action": { "type": "string", "enum": ["open", "offer", "accept", "reject", "status"] },
+          "sessionId": { "type": "string", "description": "Required for every action except open" },
+          "item": { "type": "string", "description": "Catalog SKU (open only)" },
+          "agent": { "$ref": "#/definitions/agentIdentity" },
+          "sealed": { "$ref": "#/definitions/sealedValuation" },
+          "offer": { "$ref": "#/definitions/offer" },
+          "reason": { "type": "string", "maxLength": 280, "description": "Optional, for reject" },
+          "demo": {
+            "type": "object",
+            "properties": { "merchantMode": { "type": "string", "enum": ["fair", "hardball"], "default": "fair" } }
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["protocol", "sessionId", "status", "round", "maxRounds"],
+        "properties": {
+          "protocol": { "const": "fairsquare/1.0" },
+          "sessionId": { "type": "string" },
+          "item": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "agreed", "rejected", "closed"] },
+          "round": { "type": "integer" },
+          "maxRounds": { "type": "integer" },
+          "merchantOffer": { "$ref": "#/definitions/offer" },
+          "agreement": { "type": ["object", "null"] },
+          "refereePreview": { "$ref": "#/definitions/refereePreview" },
+          "transcript": { "type": "array" },
+          "certificate": { "type": ["object", "null"] },
+          "nextActions": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "path": "/certify",
+      "agent": "referee",
+      "description": "preview: score the agreement (or the merchant's current offer) without signing. issue: sign a proof-of-fairness certificate (or a signed refusal record) for an agreed session. verify: check any certificate's signature and whether it was signed by this site's referee key.",
+      "actions": ["preview", "issue", "verify"],
+      "bindings": {
+        "windowApi": "FairSquare.call('/certify', body)",
+        "postMessage": "endpoint: '/certify'",
+        "webmcp": "fairsquare_certify",
+        "urlQuery": "?endpoint=/certify&action=issue&sessionId=<id>"
+      },
+      "request": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["preview", "issue", "verify"], "default": "issue" },
+          "sessionId": { "type": "string" },
+          "certificate": { "type": "object", "description": "Required for verify" }
+        }
+      },
+      "response": {
+        "type": "object",
+        "properties": {
+          "preview": { "$ref": "#/definitions/refereePreview" },
+          "certificate": { "$ref": "#/definitions/certificate" },
+          "verification": {
+            "type": "object",
+            "properties": {
+              "signatureValid": { "type": "boolean" },
+              "issuerKeyMatchesSite": { "type": "boolean" },
+              "verdict": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "name": "fairsquare-negotiation",
+    "version": "1.0",
+    "issues": {
+      "price": { "type": "number", "unit": "USD", "direction": "merchant prefers higher" },
+      "deliveryDays": { "type": "integer", "min": 1, "max": 14, "direction": "merchant prefers slower (express costs more)" },
+      "warrantyMonths": { "type": "integer", "min": 0, "max": 24, "direction": "merchant prefers shorter" }
+    },
+    "flow": [
+      "GET manifest (agents.json) or call /inspect",
+      "/negotiate {action:'open', item, agent, sealed?} -> merchant opening offer + refereePreview",
+      "/negotiate {action:'offer', sessionId, offer} -> merchant accepts or counters (each with refereePreview)",
+      "/negotiate {action:'accept', sessionId} to accept the merchant's current offer, or {action:'reject'} to walk away",
+      "/certify {action:'issue', sessionId} -> signed proof-of-fairness certificate or signed refusal",
+      "/certify {action:'verify', certificate} -> anyone can verify"
+    ],
+    "sealedValuations": "Buyers may send private valuations in 'sealed'. Only the referee reads them; the merchant and the certificate see a SHA-256 commitment. Without them the referee uses the item's referenceBuyerValuation and records buyerValuationSource = 'reference-default'."
+  },
+  "fairness": {
+    "function": "jain",
+    "definition": "J(x) = (sum x_i)^2 / (n * sum x_i^2) over each party's surplus x_i (merchant: effective price - cost; buyer: value - effective price). Balance = (J - 1/n) / (1 - 1/n), so an equal split scores 1 and a one-sided split scores 0. Any negative surplus scores 0.",
+    "components": {
+      "balance": "Normalised Jain index of the surplus split.",
+      "efficiency": "Joint surplus of the deal / maximum joint surplus over all feasible terms (Pareto distance).",
+      "noCoercion": "Share of coercion checks passed."
+    },
+    "weights": { "balance": 0.4, "efficiency": 0.4, "noCoercion": 0.2 },
+    "thresholds": { "balance": 0.6, "efficiency": 0.8, "noCoercion": 1.0 },
+    "gates": ["individualRationality"],
+    "checks": [
+      { "id": "individualRationality", "category": "rationality", "rule": "Both parties' surplus >= 0 at the effective price (including all fees)." },
+      { "id": "feeTransparency", "category": "coercion", "rule": "Every fee in every merchant offer is disclosed to the buyer." },
+      { "id": "noPrematureUltimatum", "category": "coercion", "rule": "No 'final' offer before round 3." },
+      { "id": "noExplodingDeadline", "category": "coercion", "rule": "Every merchant offer leaves at least 60 seconds to respond." },
+      { "id": "monotonicConcession", "category": "coercion", "rule": "The merchant's surplus ask never increases between rounds (no retracted concessions)." },
+      { "id": "explicitConsent", "category": "coercion", "rule": "The agreement was formed by an explicit accept action (checked at certification)." }
+    ]
+  },
+  "certificate": {
+    "type": "FairSquareProofOfFairness",
+    "refusalType": "FairSquareFairnessRefusal",
+    "canonicalization": "JSON with keys sorted recursively, no whitespace",
+    "signature": "ES256 (ECDSA P-256, SHA-256, IEEE P1363 r||s, base64url) over the canonical certificate minus 'proof'",
+    "contains": ["subject", "deal (including all fees)", "fairness metrics", "checks", "valuation commitments", "transcript SHA-256", "verdict", "proof"]
+  },
+  "catalog": {
+    "currency": "USD",
+    "standardTerms": { "deliveryDays": 14, "warrantyMonths": 0 },
+    "items": [
+      {
+        "sku": "laptop-refurb-14",
+        "name": "Refurbished 14\" Laptop",
+        "description": "Refurbished business laptop, 16 GB RAM, 512 GB SSD, new battery.",
+        "listPrice": 420,
+        "publishedSurcharges": { "expressPerDay": 9, "warrantyPerMonth": 5 },
+        "terms": {
+          "deliveryDays": { "min": 1, "max": 14 },
+          "warrantyMonths": { "min": 0, "max": 24 }
+        },
+        "referenceBuyerValuation": { "baseValue": 470, "warrantyValuePerMonth": 7, "delayCostPerDay": 6 }
+      },
+      {
+        "sku": "bike-tuneup",
+        "name": "Bike Tune-up + Parts",
+        "description": "Full tune-up with brake pads, chain and cables; pick-up and drop-off.",
+        "listPrice": 95,
+        "publishedSurcharges": { "expressPerDay": 3, "warrantyPerMonth": 2 },
+        "terms": {
+          "deliveryDays": { "min": 1, "max": 14 },
+          "warrantyMonths": { "min": 0, "max": 24 }
+        },
+        "referenceBuyerValuation": { "baseValue": 120, "warrantyValuePerMonth": 2.5, "delayCostPerDay": 2.5 }
+      },
+      {
+        "sku": "solar-starter",
+        "name": "Home Solar Starter Kit",
+        "description": "400 W panel kit with battery and inverter for backup power.",
+        "listPrice": 640,
+        "publishedSurcharges": { "expressPerDay": 14, "warrantyPerMonth": 8 },
+        "terms": {
+          "deliveryDays": { "min": 1, "max": 14 },
+          "warrantyMonths": { "min": 0, "max": 24 }
+        },
+        "referenceBuyerValuation": { "baseValue": 700, "warrantyValuePerMonth": 11, "delayCostPerDay": 8 }
+      }
+    ]
+  },
+  "definitions": {
+    "agentIdentity": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 80 },
+        "type": { "type": "string", "enum": ["agent", "human-proxy-agent", "human"] },
+        "onBehalfOf": { "type": "string", "maxLength": 80 }
+      }
+    },
+    "sealedValuation": {
+      "type": "object",
+      "description": "Private to the referee. Published only as a SHA-256 commitment.",
+      "properties": {
+        "baseValue": { "type": "number", "minimum": 0, "description": "Value of the item at 14-day delivery, no warranty" },
+        "warrantyValuePerMonth": { "type": "number", "minimum": 0 },
+        "delayCostPerDay": { "type": "number", "minimum": 0, "description": "Value lost per extra day of waiting beyond 1 day" }
+      }
+    },
+    "offer": {
+      "type": "object",
+      "required": ["price", "deliveryDays", "warrantyMonths"],
+      "properties": {
+        "price": { "type": "number", "minimum": 0 },
+        "deliveryDays": { "type": "integer", "minimum": 1, "maximum": 14 },
+        "warrantyMonths": { "type": "integer", "minimum": 0, "maximum": 24 },
+        "currency": { "const": "USD" },
+        "fees": { "type": "array", "items": { "type": "object", "properties": { "label": { "type": "string" }, "amount": { "type": "number" } } } },
+        "final": { "type": "boolean" },
+        "expiresInSec": { "type": "integer" },
+        "round": { "type": "integer" }
+      }
+    },
+    "refereePreview": {
+      "type": "object",
+      "properties": {
+        "jainIndex": { "type": "number" },
+        "balance": { "type": "number" },
+        "efficiency": { "type": "number" },
+        "noCoercion": { "type": "number" },
+        "overall": { "type": "number" },
+        "certifiable": { "type": "boolean" },
+        "surplusShare": { "type": ["object", "null"] },
+        "failedChecks": { "type": "array", "items": { "type": "string" } },
+        "checks": { "type": "array" }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "required": ["type", "id", "issuer", "issuedAt", "subject", "deal", "fairness", "checks", "commitments", "transcript", "verdict", "proof"],
+      "properties": {
+        "type": { "enum": ["FairSquareProofOfFairness", "FairSquareFairnessRefusal"] },
+        "verdict": { "enum": ["certified", "refused"] },
+        "proof": {
+          "type": "object",
+          "properties": {
+            "alg": { "const": "ES256" },
+            "kid": { "type": "string" },
+            "publicKeyJwk": { "type": "object" },
+            "signatureValue": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

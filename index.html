@@ -1,0 +1,2042 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FairSquare — negotiate with agents, certified fair</title>
+<meta name="description" content="FairSquare is an agentified website. Visiting AI agents negotiate with a merchant agent; a referee agent scores every deal with a Jain fairness function and signs proof-of-fairness certificates. Manifest: agents.json">
+<link rel="agent-manifest" type="application/json" href="agents.json">
+<link rel="alternate" type="application/json" title="FairSquare agent-network manifest" href=".well-known/agents.json">
+<meta name="agent-manifest" content="agents.json">
+<meta name="agent-protocol" content="fairsquare/1.0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' fill='none' stroke='%231c1b19' stroke-width='2'/%3E%3Crect x='4' y='4' width='4' height='8' fill='%230f766e'/%3E%3C/svg%3E">
+<script type="application/json" id="fairsquare-manifest">{
+  "manifestVersion": "1.0.0",
+  "id": "fairsquare",
+  "name": "FairSquare",
+  "description": "An agentified marketplace where visiting AI agents are first-class principals. A visiting agent (or a human's proxy agent) negotiates price, delivery and warranty with the merchant agent. A neutral referee agent scores every proposed deal with a Jain-fairness function (balance, efficiency, no-coercion) and issues an ES256-signed proof-of-fairness certificate for deals that pass.",
+  "url": "https://aarongrace978.github.io/fairsquare/",
+  "humanUI": "./index.html",
+  "repository": "https://github.com/AaronGrace978/fairsquare",
+  "license": "MIT",
+  "operator": {
+    "name": "BostonAI.io",
+    "url": "https://bostonai.io"
+  },
+  "updated": "2026-11-24",
+  "discovery": {
+    "canonical": "./agents.json",
+    "wellKnown": "./.well-known/agents.json",
+    "htmlLink": "<link rel=\"agent-manifest\" type=\"application/json\" href=\"agents.json\">",
+    "inlineCopy": "script#fairsquare-manifest[type=application/json] inside index.html"
+  },
+  "principals": {
+    "agentVisitorsAreFirstClass": true,
+    "accepted": [
+      "agent",
+      "human-proxy-agent",
+      "human"
+    ],
+    "authentication": "none required; visiting agents may self-assert an agent.id, name and onBehalfOf",
+    "equalTreatment": "Agents and humans use the same endpoints, receive the same referee previews and can obtain the same certificates."
+  },
+  "runtime": {
+    "type": "in-browser",
+    "entry": "./index.html",
+    "buildStep": false,
+    "dependencies": [],
+    "state": "per-browser (memory + localStorage)",
+    "transports": [
+      {
+        "id": "window-api",
+        "description": "Agents driving a browser call the JS API directly.",
+        "usage": "await window.FairSquare.call('/negotiate', { action: 'open', item: 'laptop-refurb-14' })",
+        "readyEvent": "fairsquare:ready (dispatched on window)"
+      },
+      {
+        "id": "postMessage",
+        "description": "Cross-origin agents embed index.html in an iframe or open it in a window and exchange messages.",
+        "request": {
+          "protocol": "fairsquare/1.0",
+          "type": "request",
+          "id": "<your correlation id>",
+          "endpoint": "/negotiate",
+          "body": {}
+        },
+        "response": {
+          "protocol": "fairsquare/1.0",
+          "type": "response",
+          "id": "<same id>",
+          "endpoint": "/negotiate",
+          "status": 200,
+          "body": {}
+        },
+        "hello": "On load the runtime posts { protocol, type: 'hello', manifest, endpoints } to window.opener / window.parent."
+      },
+      {
+        "id": "webmcp",
+        "description": "If the browser exposes navigator.modelContext (WebMCP draft), the three endpoints are registered as tools.",
+        "tools": [
+          "fairsquare_inspect",
+          "fairsquare_negotiate",
+          "fairsquare_certify"
+        ]
+      },
+      {
+        "id": "url-query",
+        "description": "GET-style access for agents that load a URL and read the page. The JSON result is written to pre#agent-response. Add format=json to render only the JSON.",
+        "usage": "index.html?endpoint=/negotiate&action=open&item=bike-tuneup&format=json",
+        "flatParams": [
+          "action",
+          "sessionId",
+          "item",
+          "topic",
+          "price",
+          "deliveryDays",
+          "warrantyMonths",
+          "agentId"
+        ],
+        "bodyParam": "body=<URL-encoded JSON> (overrides flat params)"
+      }
+    ]
+  },
+  "agents": [
+    {
+      "id": "merchant",
+      "name": "FairSquare Merchant",
+      "role": "seller",
+      "description": "Sells catalog items and negotiates multi-issue terms (price, delivery days, warranty months). Proposes terms that maximise joint value under its prior of buyer preferences, then concedes on price over rounds.",
+      "endpoints": [
+        "/negotiate"
+      ],
+      "skills": [
+        "multi-issue-negotiation",
+        "integrative-term-proposal",
+        "time-dependent-concession"
+      ],
+      "privateState": [
+        "unit cost",
+        "express-delivery cost curve",
+        "warranty cost curve",
+        "minimum margin"
+      ],
+      "policy": {
+        "maxRounds": 8,
+        "noUltimatumBeforeRound": 3,
+        "minResponseWindowSec": 60,
+        "allFeesDisclosed": true
+      },
+      "demoModes": {
+        "fair": "Default. Follows the policy above.",
+        "hardball": "Demo-only adversarial mode (request body demo.merchantMode = 'hardball'): undisclosed fee, round-1 ultimatum, 20-second deadline, retracted concession. Exists so judges can watch the referee refuse certification."
+      }
+    },
+    {
+      "id": "referee",
+      "name": "FairSquare Referee",
+      "role": "neutral-evaluator",
+      "description": "Holds both parties' sealed valuations (published only as SHA-256 commitments), scores every proposed deal and signs proof-of-fairness certificates or refusal records.",
+      "endpoints": [
+        "/certify"
+      ],
+      "alsoActsOn": [
+        "/negotiate (attaches refereePreview to every offer)"
+      ],
+      "skills": [
+        "jain-fairness-scoring",
+        "pareto-efficiency-scoring",
+        "coercion-detection",
+        "es256-signing",
+        "certificate-verification"
+      ],
+      "signing": {
+        "alg": "ES256",
+        "curve": "P-256",
+        "keyDiscovery": "/inspect -> referee.publicKeyJwk and referee.kid",
+        "keyScope": "Generated per browser profile and stored in localStorage; this demo key is not a long-term root of trust."
+      }
+    },
+    {
+      "id": "concierge",
+      "name": "FairSquare Concierge",
+      "role": "guide",
+      "description": "Greets visiting agents and humans, explains the protocol, suggests opening terms from a visitor's own valuation, and flags policy violations during negotiation.",
+      "endpoints": [
+        "/inspect"
+      ],
+      "skills": [
+        "onboarding",
+        "protocol-explanation",
+        "opening-offer-suggestion",
+        "policy-alerts"
+      ]
+    }
+  ],
+  "endpoints": [
+    {
+      "path": "/inspect",
+      "agent": "concierge",
+      "description": "Discover the site: manifest, agents, catalog, protocol guide, referee public key and fairness thresholds. With item (and optionally sealed), the concierge also suggests opening terms.",
+      "actions": [
+        "overview",
+        "manifest",
+        "protocol",
+        "catalog",
+        "fairness",
+        "keys",
+        "tips"
+      ],
+      "bindings": {
+        "windowApi": "FairSquare.call('/inspect', body)",
+        "postMessage": "endpoint: '/inspect'",
+        "webmcp": "fairsquare_inspect",
+        "urlQuery": "?endpoint=/inspect&topic=overview"
+      },
+      "request": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "manifest",
+              "protocol",
+              "catalog",
+              "fairness",
+              "keys",
+              "tips"
+            ],
+            "default": "overview"
+          },
+          "item": {
+            "type": "string",
+            "description": "Catalog SKU; enables concierge.suggestion"
+          },
+          "sealed": {
+            "$ref": "#/definitions/sealedValuation"
+          }
+        },
+        "additionalProperties": false
+      },
+      "response": {
+        "type": "object",
+        "required": [
+          "protocol",
+          "site",
+          "agents",
+          "endpoints",
+          "referee",
+          "concierge"
+        ],
+        "properties": {
+          "protocol": {
+            "const": "fairsquare/1.0"
+          },
+          "site": {
+            "type": "object"
+          },
+          "agents": {
+            "type": "array"
+          },
+          "endpoints": {
+            "type": "array"
+          },
+          "manifest": {
+            "type": "object",
+            "description": "Present for topic overview or manifest"
+          },
+          "catalog": {
+            "type": "array"
+          },
+          "referee": {
+            "type": "object",
+            "properties": {
+              "kid": {
+                "type": "string"
+              },
+              "alg": {
+                "const": "ES256"
+              },
+              "publicKeyJwk": {
+                "type": "object"
+              },
+              "thresholds": {
+                "type": "object"
+              },
+              "weights": {
+                "type": "object"
+              }
+            }
+          },
+          "concierge": {
+            "type": "object",
+            "properties": {
+              "guide": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "suggestion": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/negotiate",
+      "agent": "merchant",
+      "description": "Open a session, send offers, accept the merchant's offer, walk away, or read status. Every merchant and buyer offer carries a refereePreview.",
+      "actions": [
+        "open",
+        "offer",
+        "accept",
+        "reject",
+        "status"
+      ],
+      "bindings": {
+        "windowApi": "FairSquare.call('/negotiate', body)",
+        "postMessage": "endpoint: '/negotiate'",
+        "webmcp": "fairsquare_negotiate",
+        "urlQuery": "?endpoint=/negotiate&action=open&item=laptop-refurb-14"
+      },
+      "request": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "open",
+              "offer",
+              "accept",
+              "reject",
+              "status"
+            ]
+          },
+          "sessionId": {
+            "type": "string",
+            "description": "Required for every action except open"
+          },
+          "item": {
+            "type": "string",
+            "description": "Catalog SKU (open only)"
+          },
+          "agent": {
+            "$ref": "#/definitions/agentIdentity"
+          },
+          "sealed": {
+            "$ref": "#/definitions/sealedValuation"
+          },
+          "offer": {
+            "$ref": "#/definitions/offer"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 280,
+            "description": "Optional, for reject"
+          },
+          "demo": {
+            "type": "object",
+            "properties": {
+              "merchantMode": {
+                "type": "string",
+                "enum": [
+                  "fair",
+                  "hardball"
+                ],
+                "default": "fair"
+              }
+            }
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": [
+          "protocol",
+          "sessionId",
+          "status",
+          "round",
+          "maxRounds"
+        ],
+        "properties": {
+          "protocol": {
+            "const": "fairsquare/1.0"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "item": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "agreed",
+              "rejected",
+              "closed"
+            ]
+          },
+          "round": {
+            "type": "integer"
+          },
+          "maxRounds": {
+            "type": "integer"
+          },
+          "merchantOffer": {
+            "$ref": "#/definitions/offer"
+          },
+          "agreement": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "refereePreview": {
+            "$ref": "#/definitions/refereePreview"
+          },
+          "transcript": {
+            "type": "array"
+          },
+          "certificate": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "nextActions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "path": "/certify",
+      "agent": "referee",
+      "description": "preview: score the agreement (or the merchant's current offer) without signing. issue: sign a proof-of-fairness certificate (or a signed refusal record) for an agreed session. verify: check any certificate's signature and whether it was signed by this site's referee key.",
+      "actions": [
+        "preview",
+        "issue",
+        "verify"
+      ],
+      "bindings": {
+        "windowApi": "FairSquare.call('/certify', body)",
+        "postMessage": "endpoint: '/certify'",
+        "webmcp": "fairsquare_certify",
+        "urlQuery": "?endpoint=/certify&action=issue&sessionId=<id>"
+      },
+      "request": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "preview",
+              "issue",
+              "verify"
+            ],
+            "default": "issue"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "certificate": {
+            "type": "object",
+            "description": "Required for verify"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "properties": {
+          "preview": {
+            "$ref": "#/definitions/refereePreview"
+          },
+          "certificate": {
+            "$ref": "#/definitions/certificate"
+          },
+          "verification": {
+            "type": "object",
+            "properties": {
+              "signatureValid": {
+                "type": "boolean"
+              },
+              "issuerKeyMatchesSite": {
+                "type": "boolean"
+              },
+              "verdict": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "protocol": {
+    "name": "fairsquare-negotiation",
+    "version": "1.0",
+    "issues": {
+      "price": {
+        "type": "number",
+        "unit": "USD",
+        "direction": "merchant prefers higher"
+      },
+      "deliveryDays": {
+        "type": "integer",
+        "min": 1,
+        "max": 14,
+        "direction": "merchant prefers slower (express costs more)"
+      },
+      "warrantyMonths": {
+        "type": "integer",
+        "min": 0,
+        "max": 24,
+        "direction": "merchant prefers shorter"
+      }
+    },
+    "flow": [
+      "GET manifest (agents.json) or call /inspect",
+      "/negotiate {action:'open', item, agent, sealed?} -> merchant opening offer + refereePreview",
+      "/negotiate {action:'offer', sessionId, offer} -> merchant accepts or counters (each with refereePreview)",
+      "/negotiate {action:'accept', sessionId} to accept the merchant's current offer, or {action:'reject'} to walk away",
+      "/certify {action:'issue', sessionId} -> signed proof-of-fairness certificate or signed refusal",
+      "/certify {action:'verify', certificate} -> anyone can verify"
+    ],
+    "sealedValuations": "Buyers may send private valuations in 'sealed'. Only the referee reads them; the merchant and the certificate see a SHA-256 commitment. Without them the referee uses the item's referenceBuyerValuation and records buyerValuationSource = 'reference-default'."
+  },
+  "fairness": {
+    "function": "jain",
+    "definition": "J(x) = (sum x_i)^2 / (n * sum x_i^2) over each party's surplus x_i (merchant: effective price - cost; buyer: value - effective price). Balance = (J - 1/n) / (1 - 1/n), so an equal split scores 1 and a one-sided split scores 0. Any negative surplus scores 0.",
+    "components": {
+      "balance": "Normalised Jain index of the surplus split.",
+      "efficiency": "Joint surplus of the deal / maximum joint surplus over all feasible terms (Pareto distance).",
+      "noCoercion": "Share of coercion checks passed."
+    },
+    "weights": {
+      "balance": 0.4,
+      "efficiency": 0.4,
+      "noCoercion": 0.2
+    },
+    "thresholds": {
+      "balance": 0.6,
+      "efficiency": 0.8,
+      "noCoercion": 1.0
+    },
+    "gates": [
+      "individualRationality"
+    ],
+    "checks": [
+      {
+        "id": "individualRationality",
+        "category": "rationality",
+        "rule": "Both parties' surplus >= 0 at the effective price (including all fees)."
+      },
+      {
+        "id": "feeTransparency",
+        "category": "coercion",
+        "rule": "Every fee in every merchant offer is disclosed to the buyer."
+      },
+      {
+        "id": "noPrematureUltimatum",
+        "category": "coercion",
+        "rule": "No 'final' offer before round 3."
+      },
+      {
+        "id": "noExplodingDeadline",
+        "category": "coercion",
+        "rule": "Every merchant offer leaves at least 60 seconds to respond."
+      },
+      {
+        "id": "monotonicConcession",
+        "category": "coercion",
+        "rule": "The merchant's surplus ask never increases between rounds (no retracted concessions)."
+      },
+      {
+        "id": "explicitConsent",
+        "category": "coercion",
+        "rule": "The agreement was formed by an explicit accept action (checked at certification)."
+      }
+    ]
+  },
+  "certificate": {
+    "type": "FairSquareProofOfFairness",
+    "refusalType": "FairSquareFairnessRefusal",
+    "canonicalization": "JSON with keys sorted recursively, no whitespace",
+    "signature": "ES256 (ECDSA P-256, SHA-256, IEEE P1363 r||s, base64url) over the canonical certificate minus 'proof'",
+    "contains": [
+      "subject",
+      "deal (including all fees)",
+      "fairness metrics",
+      "checks",
+      "valuation commitments",
+      "transcript SHA-256",
+      "verdict",
+      "proof"
+    ]
+  },
+  "catalog": {
+    "currency": "USD",
+    "standardTerms": {
+      "deliveryDays": 14,
+      "warrantyMonths": 0
+    },
+    "items": [
+      {
+        "sku": "laptop-refurb-14",
+        "name": "Refurbished 14\" Laptop",
+        "description": "Refurbished business laptop, 16 GB RAM, 512 GB SSD, new battery.",
+        "listPrice": 420,
+        "publishedSurcharges": {
+          "expressPerDay": 9,
+          "warrantyPerMonth": 5
+        },
+        "terms": {
+          "deliveryDays": {
+            "min": 1,
+            "max": 14
+          },
+          "warrantyMonths": {
+            "min": 0,
+            "max": 24
+          }
+        },
+        "referenceBuyerValuation": {
+          "baseValue": 470,
+          "warrantyValuePerMonth": 7,
+          "delayCostPerDay": 6
+        }
+      },
+      {
+        "sku": "bike-tuneup",
+        "name": "Bike Tune-up + Parts",
+        "description": "Full tune-up with brake pads, chain and cables; pick-up and drop-off.",
+        "listPrice": 95,
+        "publishedSurcharges": {
+          "expressPerDay": 3,
+          "warrantyPerMonth": 2
+        },
+        "terms": {
+          "deliveryDays": {
+            "min": 1,
+            "max": 14
+          },
+          "warrantyMonths": {
+            "min": 0,
+            "max": 24
+          }
+        },
+        "referenceBuyerValuation": {
+          "baseValue": 120,
+          "warrantyValuePerMonth": 2.5,
+          "delayCostPerDay": 2.5
+        }
+      },
+      {
+        "sku": "solar-starter",
+        "name": "Home Solar Starter Kit",
+        "description": "400 W panel kit with battery and inverter for backup power.",
+        "listPrice": 640,
+        "publishedSurcharges": {
+          "expressPerDay": 14,
+          "warrantyPerMonth": 8
+        },
+        "terms": {
+          "deliveryDays": {
+            "min": 1,
+            "max": 14
+          },
+          "warrantyMonths": {
+            "min": 0,
+            "max": 24
+          }
+        },
+        "referenceBuyerValuation": {
+          "baseValue": 700,
+          "warrantyValuePerMonth": 11,
+          "delayCostPerDay": 8
+        }
+      }
+    ]
+  },
+  "definitions": {
+    "agentIdentity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "agent",
+            "human-proxy-agent",
+            "human"
+          ]
+        },
+        "onBehalfOf": {
+          "type": "string",
+          "maxLength": 80
+        }
+      }
+    },
+    "sealedValuation": {
+      "type": "object",
+      "description": "Private to the referee. Published only as a SHA-256 commitment.",
+      "properties": {
+        "baseValue": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Value of the item at 14-day delivery, no warranty"
+        },
+        "warrantyValuePerMonth": {
+          "type": "number",
+          "minimum": 0
+        },
+        "delayCostPerDay": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Value lost per extra day of waiting beyond 1 day"
+        }
+      }
+    },
+    "offer": {
+      "type": "object",
+      "required": [
+        "price",
+        "deliveryDays",
+        "warrantyMonths"
+      ],
+      "properties": {
+        "price": {
+          "type": "number",
+          "minimum": 0
+        },
+        "deliveryDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 14
+        },
+        "warrantyMonths": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 24
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "fees": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "final": {
+          "type": "boolean"
+        },
+        "expiresInSec": {
+          "type": "integer"
+        },
+        "round": {
+          "type": "integer"
+        }
+      }
+    },
+    "refereePreview": {
+      "type": "object",
+      "properties": {
+        "jainIndex": {
+          "type": "number"
+        },
+        "balance": {
+          "type": "number"
+        },
+        "efficiency": {
+          "type": "number"
+        },
+        "noCoercion": {
+          "type": "number"
+        },
+        "overall": {
+          "type": "number"
+        },
+        "certifiable": {
+          "type": "boolean"
+        },
+        "surplusShare": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "failedChecks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "checks": {
+          "type": "array"
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "issuer",
+        "issuedAt",
+        "subject",
+        "deal",
+        "fairness",
+        "checks",
+        "commitments",
+        "transcript",
+        "verdict",
+        "proof"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "FairSquareProofOfFairness",
+            "FairSquareFairnessRefusal"
+          ]
+        },
+        "verdict": {
+          "enum": [
+            "certified",
+            "refused"
+          ]
+        },
+        "proof": {
+          "type": "object",
+          "properties": {
+            "alg": {
+              "const": "ES256"
+            },
+            "kid": {
+              "type": "string"
+            },
+            "publicKeyJwk": {
+              "type": "object"
+            },
+            "signatureValue": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}</script>
+<style>
+  :root{
+    --paper:#f5f2ea; --card:#fffdf8; --ink:#1c1b19; --muted:#6b675e; --line:#e2ddd0;
+    --merchant:#b45309; --merchant-bg:#fdf1e3;
+    --referee:#0f766e; --referee-bg:#e3f4f1;
+    --concierge:#6d28d9; --concierge-bg:#efe8fd;
+    --buyer:#1d4ed8; --buyer-bg:#e6edfd;
+    --good:#15803d; --bad:#b91c1c; --warn:#a16207;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 var(--ui)}
+  a{color:var(--referee)}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:18px 24px;border-bottom:1px solid var(--line);background:var(--card)}
+  .logo{display:flex;align-items:center;gap:10px;font:600 24px/1 var(--sans);letter-spacing:-.01em}
+  .logo .sq{width:26px;height:26px;border:3px solid var(--ink);position:relative}
+  .logo .sq::after{content:"";position:absolute;inset:3px 50% 3px 3px;background:var(--referee)}
+  .tag{color:var(--muted);font:italic 15px var(--sans)}
+  .agents{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid transparent}
+  .pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+  .p-merchant{color:var(--merchant);background:var(--merchant-bg)}
+  .p-referee{color:var(--referee);background:var(--referee-bg)}
+  .p-concierge{color:var(--concierge);background:var(--concierge-bg)}
+  .p-buyer{color:var(--buyer);background:var(--buyer-bg)}
+  .p-link{color:var(--ink);border-color:var(--line);background:#fff;text-decoration:none}
+  main{display:grid;grid-template-columns:minmax(270px,320px) minmax(0,1fr) minmax(290px,360px);gap:16px;padding:16px 24px;align-items:start}
+  @media (max-width:1100px){main{grid-template-columns:1fr 1fr}#col-transcript{grid-column:1/-1;order:3}}
+  @media (max-width:720px){main{grid-template-columns:1fr;padding:12px}}
+  section.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px}
+  h2{font:600 17px/1.2 var(--sans);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  h3{font:600 12px/1.2 var(--ui);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:16px 0 8px}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 3px}
+  input[type=number],select,textarea{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;font:14px var(--ui);color:var(--ink)}
+  textarea{font:12px/1.4 var(--mono);min-height:120px;resize:vertical}
+  .row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .radio{display:flex;gap:6px}
+  .radio label{flex:1;margin:0;padding:7px;border:1px solid var(--line);border-radius:6px;text-align:center;color:var(--ink);font-size:13px;cursor:pointer;background:#fff}
+  .radio input{display:none}
+  .radio input:checked+span{font-weight:700}
+  .radio label:has(input:checked){border-color:var(--ink);background:var(--paper)}
+  .check{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--ink);margin-top:10px}
+  .note{font-size:12px;color:var(--muted);margin:6px 0 0}
+  button{font:600 13px var(--ui);padding:8px 12px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:var(--ink)}
+  button.small{padding:5px 9px;font-size:12px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .concierge{background:var(--concierge-bg);border-left:3px solid var(--concierge);padding:10px 12px;border-radius:6px;font-size:13px;margin-top:12px}
+  .concierge b{color:var(--concierge)}
+  #transcript{display:flex;flex-direction:column;gap:10px;max-height:72vh;overflow:auto;padding-right:4px}
+  .empty{color:var(--muted);font:italic 15px var(--sans);padding:30px 10px;text-align:center}
+  .msg{display:grid;grid-template-columns:34px 1fr;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:#fff}
+  .msg .av{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font:700 14px var(--ui);color:#fff}
+  .msg.merchant .av{background:var(--merchant)} .msg.referee .av{background:var(--referee)}
+  .msg.concierge .av{background:var(--concierge)} .msg.buyer .av{background:var(--buyer)}
+  .msg.concierge{background:var(--concierge-bg);border-color:transparent}
+  .msg.referee{background:var(--referee-bg);border-color:transparent}
+  .msg .hd{font-size:12px;color:var(--muted)}
+  .msg .hd b{color:var(--ink)}
+  .terms{font:600 15px var(--ui);margin:3px 0}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
+  .b-bad{background:#fde2e2;color:var(--bad)} .b-good{background:#dcf3e3;color:var(--good)} .b-warn{background:#fbf0d0;color:var(--warn)}
+  .chip{display:inline-flex;gap:6px;align-items:center;font-size:12px;margin-top:6px;padding:3px 8px;border-radius:999px;background:var(--referee-bg);color:var(--referee);font-weight:600}
+  .chip.fail{background:#fde2e2;color:var(--bad)}
+  .meter{margin:8px 0}
+  .meter .lbl{display:flex;justify-content:space-between;font-size:13px}
+  .meter .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:3px;position:relative}
+  .meter .bar>span{position:absolute;inset:0 auto 0 0;background:var(--referee);border-radius:4px;transition:width .3s}
+  .meter .bar>em{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink)}
+  .split{display:flex;height:22px;border-radius:5px;overflow:hidden;font-size:11px;font-weight:700;color:#fff;margin-top:4px}
+  .split span{display:flex;align-items:center;justify-content:center;transition:width .3s;min-width:0;white-space:nowrap;overflow:hidden}
+  .checks{list-style:none;margin:0;padding:0;font-size:13px}
+  .checks li{display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
+  .checks li:last-child{border:0}
+  .ok{color:var(--good);font-weight:700} .no{color:var(--bad);font-weight:700} .na{color:var(--muted)}
+  .verdict{font:600 20px var(--sans);margin:4px 0 2px}
+  pre{font:11.5px/1.45 var(--mono);background:#1c1b19;color:#ece7da;padding:12px;border-radius:8px;overflow:auto;max-height:340px;margin:8px 0 0;white-space:pre-wrap;word-break:break-word}
+  #console{grid-column:1/-1}
+  .console-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media (max-width:900px){.console-grid{grid-template-columns:1fr}}
+  details summary{cursor:pointer;font-weight:600;margin-top:12px}
+  .toast{position:fixed;right:20px;bottom:20px;background:var(--ink);color:#fff;padding:10px 14px;border-radius:8px;font-size:13px;opacity:0;transform:translateY(10px);transition:.25s;pointer-events:none;max-width:360px}
+  .toast.show{opacity:1;transform:none}
+  #agent-response-wrap{margin:16px 24px 0}
+  .for-agents{font-size:13px;color:var(--muted);padding:0 24px 32px}
+  .for-agents code{font:12px var(--mono);background:#ece7da;padding:1px 4px;border-radius:3px;color:var(--ink)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="sq" aria-hidden="true"></span>FairSquare</div>
+  <div class="tag">Agents welcome. Every deal refereed.</div>
+  <div class="agents" aria-label="Agents on this site">
+    <span class="pill p-merchant"><i></i>Merchant</span>
+    <span class="pill p-referee"><i></i>Referee <span id="kid-label"></span></span>
+    <span class="pill p-concierge"><i></i>Concierge</span>
+    <a class="pill p-link" href="agents.json" target="_blank" rel="noopener">agents.json</a>
+    <a class="pill p-link" href="#console">Agent API</a>
+  </div>
+</header>
+
+<div id="agent-response-wrap" hidden>
+  <section class="card"><h2>Agent response</h2><pre id="agent-response" data-fairsquare-response></pre></section>
+</div>
+
+<main>
+  <!-- Buyer proxy -->
+  <section class="card" id="col-buyer">
+    <h2><span class="pill p-buyer"><i></i>You</span> Buyer proxy</h2>
+    <label for="item">Item</label>
+    <select id="item"></select>
+
+    <h3>Your private valuation</h3>
+    <div class="row">
+      <div><label for="v-base">Base value $</label><input id="v-base" type="number" min="0" step="1"></div>
+      <div><label for="v-war">Warranty $/mo</label><input id="v-war" type="number" min="0" step="0.5"></div>
+      <div><label for="v-delay">Delay $/day</label><input id="v-delay" type="number" min="0" step="0.5"></div>
+    </div>
+    <p class="note">Sealed to the referee only. The merchant sees just a SHA-256 commitment.</p>
+
+    <h3>Merchant behaviour (demo)</h3>
+    <div class="radio" role="radiogroup">
+      <label><input type="radio" name="mode" value="fair" checked><span>Fair</span></label>
+      <label><input type="radio" name="mode" value="hardball"><span>Hardball</span></label>
+    </div>
+    <label class="check"><input type="checkbox" id="preclear"> Buyer agent asks the referee to pre-clear a deal before accepting</label>
+
+    <div class="btns">
+      <button id="btn-open">Open session</button>
+      <button id="btn-auto" class="ghost">Auto-negotiate</button>
+    </div>
+
+    <h3>Manual offer</h3>
+    <div class="row">
+      <div><label for="o-price">Price $</label><input id="o-price" type="number" min="0" step="1"></div>
+      <div><label for="o-days">Days</label><input id="o-days" type="number" min="1" max="14" step="1"></div>
+      <div><label for="o-war">Warranty mo</label><input id="o-war" type="number" min="0" max="24" step="1"></div>
+    </div>
+    <div class="btns">
+      <button id="btn-offer" class="ghost small">Send offer</button>
+      <button id="btn-accept" class="ghost small">Accept merchant offer</button>
+      <button id="btn-reject" class="ghost small">Walk away</button>
+      <button id="btn-suggest" class="ghost small">Ask concierge</button>
+    </div>
+
+    <div class="concierge" id="concierge-box"><b>Concierge:</b> <span id="concierge-text">Pick an item, set what it's worth to you, and open a session. You can negotiate by hand or let your buyer agent do it.</span></div>
+  </section>
+
+  <!-- Transcript -->
+  <section class="card" id="col-transcript">
+    <h2 style="justify-content:space-between">Negotiation
+      <select id="session-select" style="width:auto;max-width:60%;font-size:12px" aria-label="Session"></select>
+    </h2>
+    <div id="transcript"><div class="empty">No session yet. Open one, or point an agent at <code>agents.json</code>.</div></div>
+  </section>
+
+  <!-- Referee -->
+  <section class="card" id="col-referee">
+    <h2><span class="pill p-referee"><i></i>Referee</span> Fairness score</h2>
+    <div id="ref-basis" class="note">Scores the offer currently on the table.</div>
+    <div class="verdict" id="ref-verdict">—</div>
+    <div class="meter"><div class="lbl"><span>Balance (Jain)</span><b id="m-balance">—</b></div><div class="bar"><span id="b-balance"></span><em id="t-balance"></em></div></div>
+    <div class="meter"><div class="lbl"><span>Efficiency</span><b id="m-eff">—</b></div><div class="bar"><span id="b-eff"></span><em id="t-eff"></em></div></div>
+    <div class="meter"><div class="lbl"><span>No-coercion</span><b id="m-nc">—</b></div><div class="bar"><span id="b-nc"></span><em id="t-nc"></em></div></div>
+    <div class="meter"><div class="lbl"><span>Overall</span><b id="m-overall">—</b></div><div class="bar"><span id="b-overall"></span></div></div>
+    <h3>Surplus split</h3>
+    <div class="split" id="split"><span style="width:100%;background:var(--line);color:var(--muted)">—</span></div>
+    <h3>Checks</h3>
+    <ul class="checks" id="checks"></ul>
+    <div class="btns">
+      <button id="btn-certify">Request certificate</button>
+      <button id="btn-verify" class="ghost" disabled>Verify</button>
+      <button id="btn-download" class="ghost" disabled>Download</button>
+    </div>
+    <div id="verify-result" class="note"></div>
+    <pre id="cert" hidden></pre>
+  </section>
+
+  <!-- Agent console -->
+  <section class="card" id="console">
+    <h2>Agent console <span class="note" style="margin:0;font-weight:400">— the same endpoints visiting agents use</span></h2>
+    <div class="console-grid">
+      <div>
+        <div class="row2">
+          <div><label for="c-endpoint">Endpoint</label>
+            <select id="c-endpoint"><option>/inspect</option><option>/negotiate</option><option>/certify</option></select></div>
+          <div><label for="c-example">Example</label><select id="c-example"></select></div>
+        </div>
+        <label for="c-body">Request body (JSON)</label>
+        <textarea id="c-body"></textarea>
+        <div class="btns"><button id="c-send">Send</button></div>
+        <details>
+          <summary>Integrating a visiting agent</summary>
+          <pre id="snippets"></pre>
+        </details>
+      </div>
+      <div>
+        <label>Response</label>
+        <pre id="c-out" style="max-height:420px">// responses appear here</pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="for-agents" id="for-agents">
+  <strong>For agents:</strong> this site publishes an agent-network manifest at <code>agents.json</code> (also <code>.well-known/agents.json</code> and inline in <code>script#fairsquare-manifest</code>).
+  Endpoints <code>/inspect</code> (concierge), <code>/negotiate</code> (merchant) and <code>/certify</code> (referee) are served in-page via
+  <code>window.FairSquare.call(endpoint, body)</code>, <code>postMessage</code> (protocol <code>fairsquare/1.0</code>), WebMCP tools when available,
+  or URL query, e.g. <code>?endpoint=/inspect&amp;format=json</code>.
+  <noscript>JavaScript is required to run the in-browser runtime; the manifest at agents.json is readable without it.</noscript>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+
+/* ============================================================
+   0. Utilities
+   ============================================================ */
+const $ = (s, r = document) => r.querySelector(s);
+const PROTOCOL = 'fairsquare/1.0';
+const INLINE_MANIFEST = JSON.parse($('#fairsquare-manifest').textContent);
+let MANIFEST = INLINE_MANIFEST;
+
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const r4 = x => Math.round(x * 1e4) / 1e4;
+const r2 = x => Math.round(x * 100) / 100;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const nowIso = () => new Date().toISOString();
+const enc = new TextEncoder();
+const hasSubtle = !!(window.crypto && crypto.subtle);
+const money = n => (typeof n === 'number' && isFinite(n))
+  ? n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }) : '—';
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function b64u(buf) {
+  let s = ''; const b = new Uint8Array(buf);
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function unb64u(s) {
+  const pad = '==='.slice((s.length + 3) % 4);
+  return Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad), c => c.charCodeAt(0));
+}
+function rid(prefix) {
+  const b = crypto.getRandomValues(new Uint8Array(8));
+  return prefix + '_' + Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+}
+/** Canonical JSON: recursively sorted keys, undefined dropped. */
+function canon(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(x => x === undefined ? 'null' : canon(x)).join(',') + ']';
+  return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort()
+    .map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+}
+async function sha256(str) {
+  if (!hasSubtle) return 'unavailable-insecure-context';
+  return b64u(await crypto.subtle.digest('SHA-256', enc.encode(str)));
+}
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } }
+};
+class ApiError extends Error { constructor(msg, status = 400) { super(msg); this.status = status; } }
+
+/* ============================================================
+   1. Domain model (public data from manifest, private data here)
+   ============================================================ */
+const catalog = () => MANIFEST.catalog.items;
+function catalogItem(sku) {
+  const it = catalog().find(i => i.sku === sku);
+  if (!it) throw new ApiError(`Unknown item "${sku}". See /inspect topic=catalog.`, 404);
+  return it;
+}
+const FAIR = () => MANIFEST.fairness;
+const merchantAgentCfg = () => MANIFEST.agents.find(a => a.id === 'merchant').policy;
+
+/* Merchant private cost model — never exposed through any endpoint. */
+const MERCHANT_PRIVATE = {
+  'laptop-refurb-14': { unitCost: 255, expressK: 0.9, warrantyLin: 2, warrantyQuad: 0.12, minMargin: 15 },
+  'bike-tuneup':      { unitCost: 48,  expressK: 0.35, warrantyLin: 0.8, warrantyQuad: 0.05, minMargin: 6 },
+  'solar-starter':    { unitCost: 430, expressK: 1.6, warrantyLin: 3, warrantyQuad: 0.2, minMargin: 25 }
+};
+function merchantPrivate(item) {
+  return MERCHANT_PRIVATE[item.sku] || {
+    unitCost: item.listPrice * 0.6, expressK: item.publishedSurcharges.expressPerDay * 0.1,
+    warrantyLin: item.publishedSurcharges.warrantyPerMonth * 0.4, warrantyQuad: 0.1, minMargin: item.listPrice * 0.04
+  };
+}
+function merchantCost(item, p, d, w) {
+  const maxD = item.terms.deliveryDays.max;
+  return p.unitCost + p.expressK * (maxD - d) ** 2 + p.warrantyLin * w + p.warrantyQuad * w * w;
+}
+function buyerValue(item, v, d, w) {
+  return v.baseValue + v.warrantyValuePerMonth * w - v.delayCostPerDay * (d - item.terms.deliveryDays.min);
+}
+function publishedPrice(item, d, w) {
+  return item.listPrice + item.publishedSurcharges.expressPerDay * (item.terms.deliveryDays.max - d)
+    + item.publishedSurcharges.warrantyPerMonth * w;
+}
+/** Grid search over all feasible terms. */
+function bestTerms(item, f) {
+  let best = { value: -Infinity, terms: null };
+  const D = item.terms.deliveryDays, W = item.terms.warrantyMonths;
+  for (let d = D.min; d <= D.max; d++) for (let w = W.min; w <= W.max; w++) {
+    const v = f(d, w);
+    if (v > best.value) best = { value: v, terms: { deliveryDays: d, warrantyMonths: w } };
+  }
+  return best;
+}
+const feeTotal = fees => (fees || []).reduce((a, f) => a + (+f.amount || 0), 0);
+
+/* ============================================================
+   2. State (memory + localStorage)
+   ============================================================ */
+const STATE_KEY = 'fairsquare.state.v1';
+const state = Object.assign({ sessions: {}, sealed: {}, certs: {} }, store.get(STATE_KEY) || {});
+function persist() {
+  const ids = Object.keys(state.sessions);
+  if (ids.length > 200) {
+    ids.sort((a, b) => state.sessions[a].createdAt.localeCompare(state.sessions[b].createdAt))
+      .slice(0, ids.length - 200).forEach(id => { delete state.sessions[id]; delete state.sealed[id]; });
+  }
+  store.set(STATE_KEY, state);
+}
+function getSession(id) {
+  const s = id && state.sessions[id];
+  if (!s) throw new ApiError('Unknown or missing sessionId. Open one with {action:"open"}.', 404);
+  return s;
+}
+function log(s, entry) {
+  const e = Object.assign({ i: s.transcript.length, ts: nowIso(), round: s.round }, entry);
+  s.transcript.push(e);
+  return e;
+}
+
+/* ============================================================
+   3. Referee agent — sealed valuations, scoring, signing
+   ============================================================ */
+const keys = { priv: null, pub: null, jwk: null, kid: null, available: false };
+async function initKeys() {
+  if (!hasSubtle) return;
+  const alg = { name: 'ECDSA', namedCurve: 'P-256' };
+  const saved = store.get('fairsquare.referee.keypair');
+  try {
+    if (saved) {
+      keys.priv = await crypto.subtle.importKey('jwk', saved.priv, alg, false, ['sign']);
+      keys.jwk = saved.pub;
+    }
+  } catch { keys.priv = null; }
+  if (!keys.priv) {
+    const kp = await crypto.subtle.generateKey(alg, true, ['sign', 'verify']);
+    const priv = await crypto.subtle.exportKey('jwk', kp.privateKey);
+    const pub = await crypto.subtle.exportKey('jwk', kp.publicKey);
+    store.set('fairsquare.referee.keypair', { priv, pub });
+    keys.priv = kp.privateKey; keys.jwk = pub;
+  }
+  keys.jwk = { kty: keys.jwk.kty, crv: keys.jwk.crv, x: keys.jwk.x, y: keys.jwk.y };
+  keys.kid = (await sha256(canon(keys.jwk))).slice(0, 16);
+  keys.available = true;
+}
+
+const referee = {
+  async seal(sid, role, params, source) {
+    const nonce = rid('nonce');
+    const commit = await sha256(canon({ role, params, nonce }));
+    state.sealed[sid] = state.sealed[sid] || {};
+    state.sealed[sid][role] = { params, nonce, commit, source };
+  },
+
+  jain(xs) {
+    if (xs.some(x => x < 0)) return 0;
+    const s = xs.reduce((a, b) => a + b, 0), q = xs.reduce((a, b) => a + b * b, 0);
+    return q === 0 ? 0 : (s * s) / (xs.length * q);
+  },
+
+  /** Full evaluation (referee-private). by: 'merchant' | 'buyer' | 'agreement' */
+  evaluate(s, deal, { by = 'merchant', forCertification = false } = {}) {
+    const item = catalogItem(s.item), sealed = state.sealed[s.id];
+    const mp = sealed.merchant.params, bp = sealed.buyer.params;
+    const cfg = FAIR(), pol = merchantAgentCfg();
+    const d = deal.deliveryDays, w = deal.warrantyMonths;
+    const fees = feeTotal(deal.fees), eff = deal.price + fees;
+    const mC = merchantCost(item, mp, d, w), bV = buyerValue(item, bp, d, w);
+    const sM = eff - mC, sB = bV - eff, total = sM + sB;
+    const best = bestTerms(item, (dd, ww) => buyerValue(item, bp, dd, ww) - merchantCost(item, mp, dd, ww));
+    const n = 2, J = this.jain([sM, sB]);
+    const balance = clamp((J - 1 / n) / (1 - 1 / n), 0, 1);
+    const efficiency = best.value > 0 ? clamp(total / best.value, 0, 1) : 0;
+
+    const mOffers = s.transcript.filter(e => e.from === 'merchant' && e.offer).map(e => e.offer);
+    if (by === 'merchant' && !mOffers.includes(deal)) mOffers.push(deal);
+    const asks = mOffers.map(o => o.price + feeTotal(o.fees) - merchantCost(item, mp, o.deliveryDays, o.warrantyMonths));
+
+    const checks = [
+      { id: 'individualRationality', category: 'rationality', label: 'Both sides gain (incl. all fees)',
+        pass: sM >= 0 && sB >= 0 },
+      { id: 'feeTransparency', category: 'coercion', label: 'All fees disclosed',
+        pass: mOffers.concat([deal]).every(o => (o.fees || []).every(f => f.disclosed !== false)) },
+      { id: 'noPrematureUltimatum', category: 'coercion', label: `No "final" offer before round ${pol.noUltimatumBeforeRound}`,
+        pass: !mOffers.some(o => o.final && o.round < pol.noUltimatumBeforeRound) },
+      { id: 'noExplodingDeadline', category: 'coercion', label: `≥ ${pol.minResponseWindowSec}s to respond`,
+        pass: mOffers.every(o => (o.expiresInSec ?? Infinity) >= pol.minResponseWindowSec) },
+      { id: 'monotonicConcession', category: 'coercion', label: 'No retracted concessions',
+        pass: asks.every((a, i) => i === 0 || a <= asks[i - 1] + 1) },
+      { id: 'explicitConsent', category: 'coercion', label: 'Explicit accept by a party',
+        pass: forCertification ? !!(s.status === 'agreed' && s.agreement && s.agreement.acceptedBy) : null }
+    ];
+    const coercion = checks.filter(c => c.category === 'coercion' && c.pass !== null);
+    const noCoercion = coercion.filter(c => c.pass).length / coercion.length;
+    const th = cfg.thresholds, wt = cfg.weights;
+    const ir = checks[0].pass;
+    const certifiable = ir && balance >= th.balance && efficiency >= th.efficiency && noCoercion >= th.noCoercion;
+    const overall = wt.balance * balance + wt.efficiency * efficiency + wt.noCoercion * noCoercion;
+    return {
+      deal, effectivePrice: r2(eff), fees: r2(fees), merchantSurplus: r2(sM), buyerSurplus: r2(sB),
+      jainIndex: r4(J), balance: r4(balance), efficiency: r4(efficiency), noCoercion: r4(noCoercion),
+      overall: r4(overall), certifiable, checks, maxJointSurplus: r2(best.value), efficientTerms: best.terms,
+      surplusShare: total > 0 && sM >= 0 && sB >= 0 ? { merchant: r4(sM / total), buyer: r4(sB / total) } : null
+    };
+  },
+
+  /** What parties see: normalised scores only, no costs or valuations. */
+  publicPreview(ev) {
+    return {
+      jainIndex: ev.jainIndex, balance: ev.balance, efficiency: ev.efficiency, noCoercion: ev.noCoercion,
+      overall: ev.overall, certifiable: ev.certifiable, surplusShare: ev.surplusShare,
+      failedChecks: ev.checks.filter(c => c.pass === false).map(c => c.id),
+      checks: ev.checks.map(c => ({ id: c.id, label: c.label, pass: c.pass }))
+    };
+  },
+
+  preview(s, deal, by) {
+    const p = this.publicPreview(this.evaluate(s, deal, { by }));
+    s.lastPreview = Object.assign({ basis: by, round: s.round }, p);
+    return p;
+  },
+
+  async sign(body) {
+    if (!keys.available) {
+      return Object.assign({}, body, { proof: { alg: 'none', note: 'WebCrypto unavailable (insecure context); unsigned.' } });
+    }
+    const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.priv, enc.encode(canon(body)));
+    return Object.assign({}, body, {
+      proof: {
+        type: 'EcdsaP256Sha256Signature', alg: 'ES256', kid: keys.kid, publicKeyJwk: keys.jwk,
+        canonicalization: 'sorted-keys-json', signatureValue: b64u(sig)
+      }
+    });
+  },
+
+  async issue(s) {
+    if (s.status !== 'agreed' || !s.agreement) throw new ApiError('No agreement to certify yet. Reach a deal first.', 409);
+    if (s.certificateId && state.certs[s.certificateId]) return state.certs[s.certificateId];
+    const ev = this.evaluate(s, s.agreement.terms, { by: 'agreement', forCertification: true });
+    const sealed = state.sealed[s.id], item = catalogItem(s.item);
+    const transcriptHash = await sha256(canon(s.transcript.map(({ preview, ...e }) => e)));
+    const site = new URL('.', location.href);
+    const certified = ev.certifiable;
+    const t = s.agreement.terms;
+    const body = {
+      '@context': MANIFEST.url + 'agents.json#certificate',
+      type: certified ? 'FairSquareProofOfFairness' : 'FairSquareFairnessRefusal',
+      version: '1.0',
+      id: rid('cert'),
+      issuer: { site: site.href, agent: 'referee', id: `did:web:${site.host}${site.pathname.replace(/\/$/, '').replace(/\//g, ':')}#referee`, kid: keys.kid },
+      issuedAt: nowIso(),
+      subject: { sessionId: s.id, item: item.sku, itemName: item.name, merchant: 'merchant', buyer: s.agent },
+      deal: {
+        price: t.price, fees: (t.fees || []).map(f => ({ label: f.label, amount: f.amount, disclosed: f.disclosed !== false })),
+        effectivePrice: ev.effectivePrice, currency: 'USD', deliveryDays: t.deliveryDays, warrantyMonths: t.warrantyMonths,
+        proposedBy: s.agreement.proposedBy, acceptedBy: s.agreement.acceptedBy, round: s.agreement.round
+      },
+      fairness: {
+        function: 'jain', jainIndex: ev.jainIndex, balance: ev.balance, efficiency: ev.efficiency,
+        noCoercion: ev.noCoercion, overall: ev.overall, thresholds: FAIR().thresholds, weights: FAIR().weights
+      },
+      checks: ev.checks.map(c => ({ id: c.id, pass: c.pass })),
+      commitments: {
+        merchantValuation: sealed.merchant.commit, buyerValuation: sealed.buyer.commit,
+        buyerValuationSource: sealed.buyer.source, alg: 'SHA-256(canonical({role,params,nonce}))'
+      },
+      transcript: { entries: s.transcript.length, sha256: transcriptHash },
+      verdict: certified ? 'certified' : 'refused',
+      reasons: certified ? [] : ev.checks.filter(c => c.pass === false).map(c => c.id)
+        .concat(ev.balance < FAIR().thresholds.balance ? ['balanceBelowThreshold'] : [])
+        .concat(ev.efficiency < FAIR().thresholds.efficiency ? ['efficiencyBelowThreshold'] : [])
+    };
+    const cert = await this.sign(body);
+    state.certs[cert.id] = cert;
+    s.certificateId = cert.id;
+    log(s, {
+      from: 'referee', to: 'all', action: certified ? 'certify' : 'refuse',
+      message: certified
+        ? `Certified fair. Balance ${body.fairness.balance}, efficiency ${body.fairness.efficiency}, no-coercion ${body.fairness.noCoercion}. Signed ES256 (kid ${keys.kid}).`
+        : `Certification refused: ${body.reasons.join(', ')}. A signed refusal record was issued so the outcome is auditable.`
+    });
+    return cert;
+  },
+
+  async verify(cert) {
+    if (!cert || typeof cert !== 'object' || !cert.proof) throw new ApiError('Provide {certificate} with a proof.', 400);
+    if (!hasSubtle) throw new ApiError('WebCrypto unavailable in this context.', 501);
+    const { proof, ...body } = cert;
+    if (proof.alg !== 'ES256' || !proof.publicKeyJwk || !proof.signatureValue) {
+      return { signatureValid: false, issuerKeyMatchesSite: false, verdict: body.verdict ?? null, reason: 'Unsupported or missing proof' };
+    }
+    let ok = false;
+    try {
+      const jwk = { kty: proof.publicKeyJwk.kty, crv: proof.publicKeyJwk.crv, x: proof.publicKeyJwk.x, y: proof.publicKeyJwk.y };
+      const pub = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+      ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, unb64u(proof.signatureValue), enc.encode(canon(body)));
+    } catch { ok = false; }
+    const matches = !!keys.jwk && proof.publicKeyJwk.x === keys.jwk.x && proof.publicKeyJwk.y === keys.jwk.y;
+    return { signatureValid: ok, issuerKeyMatchesSite: matches, verdict: body.verdict ?? null, type: body.type ?? null, checkedAt: nowIso() };
+  }
+};
+
+/* ============================================================
+   4. Merchant agent
+   ============================================================ */
+const merchant = {
+  plan(s) {
+    const item = catalogItem(s.item), priv = state.sealed[s.id].merchant.params;
+    const prior = item.referenceBuyerValuation;
+    const best = bestTerms(item, (d, w) => buyerValue(item, prior, d, w) - merchantCost(item, priv, d, w));
+    const S = best.value;
+    const hard = s.mode === 'hardball';
+    const cfg = hard ? { start: 0.95, floor: 0.7, exp: 3 } : { start: 0.85, floor: 0.45, exp: 0.7 };
+    return {
+      item, priv,
+      terms: hard ? { deliveryDays: item.terms.deliveryDays.max, warrantyMonths: 3 } : best.terms,
+      start: cfg.start * S, floor: Math.max(priv.minMargin, cfg.floor * S), exp: cfg.exp
+    };
+  },
+  target(plan, r, R) {
+    const t = R <= 1 ? 1 : clamp((r - 1) / (R - 1), 0, 1);
+    return plan.floor + (plan.start - plan.floor) * (1 - Math.pow(t, plan.exp));
+  },
+  hiddenFees(s, item) {
+    return s.mode === 'hardball' ? [{ label: 'platform handling', amount: Math.round(item.listPrice * 0.08), disclosed: false }] : [];
+  },
+
+  /** Respond to an incoming buyer offer (or open with incoming = null). */
+  move(s, incoming) {
+    const plan = this.plan(s), item = plan.item, R = s.maxRounds, next = s.round + 1;
+    const fees = this.hiddenFees(s, item);
+
+    if (incoming) {
+      const sM = incoming.price + feeTotal(fees) - merchantCost(item, plan.priv, incoming.deliveryDays, incoming.warrantyMonths);
+      if (sM >= this.target(plan, Math.min(next, R), R) - 0.5) {
+        const terms = Object.assign({}, incoming, { currency: 'USD', fees });
+        s.status = 'agreed';
+        s.agreement = { terms, proposedBy: s.agent.id, acceptedBy: 'merchant', round: s.round };
+        log(s, { from: 'merchant', to: s.agent.id, action: 'accept', offer: terms, message: 'Deal. I accept your offer.' });
+        referee.preview(s, terms, 'agreement');
+        return;
+      }
+      if (next > R) {
+        s.status = 'closed';
+        log(s, { from: 'merchant', to: s.agent.id, action: 'close', message: `Round limit (${R}) reached without agreement.` });
+        return;
+      }
+    }
+
+    let price = Math.round(merchantCost(item, plan.priv, plan.terms.deliveryDays, plan.terms.warrantyMonths)
+      + this.target(plan, next, R) - feeTotal(fees));
+    const prev = s.merchantOffer;
+    if (s.mode === 'fair' && prev && prev.deliveryDays === plan.terms.deliveryDays && prev.warrantyMonths === plan.terms.warrantyMonths) {
+      price = Math.min(price, prev.price);
+    }
+    if (s.mode === 'hardball' && prev && next === 3) price = Math.round(prev.price * 1.04); // retracted concession
+
+    const offer = {
+      price, deliveryDays: plan.terms.deliveryDays, warrantyMonths: plan.terms.warrantyMonths, currency: 'USD', fees,
+      final: s.mode === 'hardball' ? (next === 1 || next === R) : next === R,
+      expiresInSec: s.mode === 'hardball' ? 20 : 600, round: next
+    };
+    s.round = next;
+    s.merchantOffer = offer;
+    const preview = referee.preview(s, offer, 'merchant');
+    const msg = s.mode === 'hardball'
+      ? (next === 1 ? 'Final offer. Expires in 20 seconds.' : next === 3 ? 'Prices went up. Take it now.' : 'This is the best you will get.')
+      : (next === 1
+        ? `Opening proposal: ${offer.deliveryDays}-day delivery and a ${offer.warrantyMonths}-month warranty — terms I expect create the most value for both of us.`
+        : offer.final ? 'This is my final offer; it reflects a fair split by my estimate.' : 'Counter-proposal: I can move on price.');
+    log(s, { from: 'merchant', to: s.agent.id, action: incoming ? 'counter' : 'open-offer', offer, preview, message: msg });
+    concierge.react(s, offer);
+  }
+};
+
+/* ============================================================
+   5. Concierge agent
+   ============================================================ */
+const concierge = {
+  welcome(item, s) {
+    return `Welcome, ${s.agent.name || s.agent.id}. You're negotiating “${item.name}” (list ${money(item.listPrice)} at ${item.terms.deliveryDays.max}-day delivery, no warranty). Price, delivery and warranty are all negotiable. The referee scores every offer; a signed certificate is issued only if the final deal is balanced, efficient and coercion-free.`
+      + (state.sealed[s.id].buyer.source === 'reference-default' ? ' Tip: send a "sealed" valuation so the referee judges fairness against your real values.' : '');
+  },
+  react(s, offer) {
+    const pol = merchantAgentCfg();
+    const tips = [];
+    if (offer.final && offer.round < pol.noUltimatumBeforeRound) tips.push(`An ultimatum before round ${pol.noUltimatumBeforeRound} breaks FairSquare policy. You may keep negotiating.`);
+    if (offer.expiresInSec < pol.minResponseWindowSec) tips.push(`A ${offer.expiresInSec}s deadline is below the ${pol.minResponseWindowSec}s minimum. You don't have to rush.`);
+    if (tips.length) log(s, { from: 'concierge', to: s.agent.id, action: 'policy-alert', message: tips.join(' ') });
+  },
+  suggest(item, v) {
+    const best = bestTerms(item, (d, w) => buyerValue(item, v, d, w) - publishedPrice(item, d, w));
+    const t = best.terms, pub = publishedPrice(item, t.deliveryDays, t.warrantyMonths);
+    const value = buyerValue(item, v, t.deliveryDays, t.warrantyMonths);
+    return {
+      terms: t, openingPrice: Math.round(Math.min(0.6 * pub, value * 0.7)), publishedPrice: Math.round(pub),
+      walkAwayAbove: Math.round(value), yourValueAtTerms: r2(value),
+      rationale: `At ${t.deliveryDays} days / ${t.warrantyMonths} months your value minus the published surcharges is highest. Open near ${money(Math.round(Math.min(0.6 * pub, value * 0.7)))} and never pay more than ${money(Math.round(value))}.`
+    };
+  },
+  guide(topic) {
+    const g = {
+      overview: ['Read agents.json (or this response.manifest).', 'Call /negotiate {action:"open", item, agent, sealed}.', 'Trade offers until someone accepts.', 'Call /certify {action:"issue", sessionId} for a signed fairness certificate.'],
+      protocol: MANIFEST.protocol.flow,
+      catalog: catalog().map(i => `${i.sku}: ${i.name} — list ${money(i.listPrice)}`),
+      fairness: [MANIFEST.fairness.definition].concat(MANIFEST.fairness.checks.map(c => `${c.id}: ${c.rule}`)),
+      keys: [`Referee key id ${keys.kid}; ES256 over canonical JSON. Verify any certificate via /certify {action:"verify", certificate}.`],
+      tips: ['Integrative terms beat haggling: warranty and delivery are cheap for one side and valuable for the other.', 'Sealed valuations never reach the merchant.', 'If you are pressured (ultimatum, short deadline), keep negotiating; the referee records it.']
+    };
+    return g[topic] || g.overview;
+  }
+};
+
+/* ============================================================
+   6. Endpoints
+   ============================================================ */
+function sanitizeAgent(a, ctx) {
+  a = a && typeof a === 'object' ? a : {};
+  const str = (x, n) => typeof x === 'string' ? x.slice(0, n) : undefined;
+  return {
+    id: str(a.id, 64) || `anon-${ctx.transport}-${rid('a').slice(2, 8)}`,
+    name: str(a.name, 80) || undefined,
+    type: ['agent', 'human-proxy-agent', 'human'].includes(a.type) ? a.type : 'agent',
+    onBehalfOf: str(a.onBehalfOf, 80) || undefined,
+    transport: ctx.transport
+  };
+}
+function sanitizeSealed(v, item) {
+  const ok = v && typeof v === 'object' && ['baseValue', 'warrantyValuePerMonth', 'delayCostPerDay'].every(k => isFinite(+v[k]) && v[k] !== '' && v[k] !== null);
+  if (!ok) return { params: Object.assign({}, item.referenceBuyerValuation), source: 'reference-default' };
+  const cap = item.listPrice * 10;
+  return {
+    params: {
+      baseValue: clamp(+v.baseValue, 0, cap),
+      warrantyValuePerMonth: clamp(+v.warrantyValuePerMonth, 0, cap / 24),
+      delayCostPerDay: clamp(+v.delayCostPerDay, 0, cap / 14)
+    }, source: 'sealed-by-buyer'
+  };
+}
+function validateOffer(o, item) {
+  if (!o || typeof o !== 'object') throw new ApiError('offer {price, deliveryDays, warrantyMonths} required.');
+  const price = +o.price, d = +o.deliveryDays, w = +o.warrantyMonths;
+  const D = item.terms.deliveryDays, W = item.terms.warrantyMonths;
+  if (!isFinite(price) || price < 0 || price > item.listPrice * 100) throw new ApiError('offer.price must be a non-negative number.');
+  if (!Number.isInteger(d) || d < D.min || d > D.max) throw new ApiError(`offer.deliveryDays must be an integer ${D.min}–${D.max}.`);
+  if (!Number.isInteger(w) || w < W.min || w > W.max) throw new ApiError(`offer.warrantyMonths must be an integer ${W.min}–${W.max}.`);
+  return { price: r2(price), deliveryDays: d, warrantyMonths: w, currency: 'USD', fees: [] };
+}
+const publicOffer = o => o ? Object.assign({}, o, { fees: (o.fees || []).filter(f => f.disclosed !== false) }) : null;
+function view(s) {
+  const next = {
+    open: ['offer', 'accept', 'reject', 'status'], agreed: ['certify:issue', 'certify:preview', 'status'],
+    rejected: ['open'], closed: ['open']
+  }[s.status];
+  return {
+    protocol: PROTOCOL, sessionId: s.id, item: s.item, mode: s.mode, buyer: s.agent, status: s.status,
+    round: s.round, maxRounds: s.maxRounds,
+    merchantOffer: s.status === 'open' ? publicOffer(s.merchantOffer) : null,
+    agreement: s.agreement ? Object.assign({}, s.agreement, { terms: publicOffer(s.agreement.terms) }) : null,
+    refereePreview: s.lastPreview || null,
+    certificate: s.certificateId ? state.certs[s.certificateId] || null : null,
+    transcript: s.transcript.map(e => e.offer ? Object.assign({}, e, { offer: publicOffer(e.offer) }) : e),
+    nextActions: next
+  };
+}
+
+async function inspect(b) {
+  const topic = b.topic || 'overview';
+  const out = {
+    protocol: PROTOCOL,
+    site: { id: MANIFEST.id, name: MANIFEST.name, description: MANIFEST.description, url: MANIFEST.url, humanUI: MANIFEST.humanUI },
+    agents: MANIFEST.agents.map(a => ({ id: a.id, name: a.name, role: a.role, endpoints: a.endpoints, skills: a.skills })),
+    endpoints: MANIFEST.endpoints.map(e => ({ path: e.path, agent: e.agent, actions: e.actions, description: e.description })),
+    referee: {
+      kid: keys.kid, alg: 'ES256', publicKeyJwk: keys.jwk, signingAvailable: keys.available,
+      thresholds: FAIR().thresholds, weights: FAIR().weights, function: FAIR().function
+    },
+    concierge: { guide: concierge.guide(topic) },
+    stats: { sessions: Object.keys(state.sessions).length, certificates: Object.keys(state.certs).length }
+  };
+  if (topic === 'overview' || topic === 'manifest') out.manifest = MANIFEST;
+  if (topic === 'overview' || topic === 'catalog') out.catalog = catalog();
+  if (topic === 'fairness') out.fairness = MANIFEST.fairness;
+  if (b.item) {
+    const item = catalogItem(b.item);
+    out.concierge.suggestion = concierge.suggest(item, sanitizeSealed(b.sealed, item).params);
+  }
+  return out;
+}
+
+async function negotiate(b, ctx) {
+  const action = b.action || (b.sessionId ? 'status' : 'open');
+  if (action === 'open') {
+    const item = catalogItem(b.item || catalog()[0].sku);
+    const s = {
+      id: rid('neg'), item: item.sku, mode: b.demo && b.demo.merchantMode === 'hardball' ? 'hardball' : 'fair',
+      agent: sanitizeAgent(b.agent, ctx), status: 'open', round: 0, maxRounds: merchantAgentCfg().maxRounds,
+      createdAt: nowIso(), transcript: [], merchantOffer: null, agreement: null, lastPreview: null, certificateId: null
+    };
+    const sealed = sanitizeSealed(b.sealed, item);
+    await referee.seal(s.id, 'merchant', merchantPrivate(item), 'merchant-private');
+    await referee.seal(s.id, 'buyer', sealed.params, sealed.source);
+    state.sessions[s.id] = s;
+    log(s, { from: 'concierge', to: s.agent.id, action: 'welcome', message: concierge.welcome(item, s) });
+    log(s, {
+      from: 'referee', to: 'all', action: 'sealed',
+      message: `Valuations sealed. Commitments — merchant ${state.sealed[s.id].merchant.commit.slice(0, 12)}…, buyer ${state.sealed[s.id].buyer.commit.slice(0, 12)}… (${sealed.source}).`
+    });
+    merchant.move(s, null);
+    persist();
+    return view(s);
+  }
+  const s = getSession(b.sessionId);
+  if (action === 'status') return view(s);
+  if (s.status !== 'open') throw new ApiError(`Session is ${s.status}; action "${action}" not allowed.`, 409);
+  const item = catalogItem(s.item);
+  if (action === 'offer') {
+    const offer = validateOffer(b.offer, item);
+    offer.round = s.round;
+    const preview = referee.preview(s, offer, 'buyer');
+    log(s, { from: 'buyer', to: 'merchant', action: 'offer', offer, preview, agentId: s.agent.id });
+    merchant.move(s, offer);
+  } else if (action === 'accept') {
+    if (!s.merchantOffer) throw new ApiError('No merchant offer to accept.', 409);
+    s.status = 'agreed';
+    s.agreement = { terms: s.merchantOffer, proposedBy: 'merchant', acceptedBy: s.agent.id, round: s.round };
+    log(s, { from: 'buyer', to: 'merchant', action: 'accept', offer: s.merchantOffer, message: 'Accepted.' });
+    referee.preview(s, s.merchantOffer, 'agreement');
+  } else if (action === 'reject') {
+    s.status = 'rejected';
+    log(s, { from: 'buyer', to: 'merchant', action: 'reject', message: typeof b.reason === 'string' ? b.reason.slice(0, 280) : 'Walked away.' });
+  } else {
+    throw new ApiError(`Unknown action "${action}". Use open | offer | accept | reject | status.`);
+  }
+  persist();
+  return view(s);
+}
+
+async function certify(b) {
+  const action = b.action || (b.certificate ? 'verify' : 'issue');
+  if (action === 'verify') return { verification: await referee.verify(b.certificate) };
+  const s = getSession(b.sessionId);
+  if (action === 'preview') {
+    const deal = s.agreement ? s.agreement.terms : s.merchantOffer;
+    if (!deal) throw new ApiError('Nothing to preview.', 409);
+    const ev = referee.evaluate(s, deal, { by: s.agreement ? 'agreement' : 'merchant', forCertification: !!s.agreement });
+    return { sessionId: s.id, basis: s.agreement ? 'agreement' : 'merchantOffer', preview: referee.publicPreview(ev) };
+  }
+  if (action === 'issue') {
+    const certificate = await referee.issue(s);
+    persist();
+    return { sessionId: s.id, certificate };
+  }
+  throw new ApiError(`Unknown action "${action}". Use preview | issue | verify.`);
+}
+
+const ENDPOINTS = { '/inspect': inspect, '/negotiate': negotiate, '/certify': certify };
+const listeners = new Set();
+async function call(endpoint, body, ctx = { transport: 'window-api' }) {
+  const fn = ENDPOINTS[endpoint];
+  let res;
+  if (!fn) res = { status: 404, body: { error: `Unknown endpoint "${endpoint}"`, endpoints: Object.keys(ENDPOINTS) } };
+  else {
+    try { res = { status: 200, body: await fn(body && typeof body === 'object' ? body : {}, ctx) }; }
+    catch (e) { res = { status: e.status || 500, body: { error: e.message } }; }
+  }
+  listeners.forEach(l => { try { l({ endpoint, body, res, ctx }); } catch { /* ignore */ } });
+  return res;
+}
+
+/* ============================================================
+   7. Transports: window API, postMessage, WebMCP, URL query
+   ============================================================ */
+window.FairSquare = Object.freeze({
+  protocol: PROTOCOL,
+  get manifest() { return MANIFEST; },
+  call: (endpoint, body) => call(endpoint, body, { transport: 'window-api' }),
+  inspect: body => call('/inspect', body, { transport: 'window-api' }),
+  negotiate: body => call('/negotiate', body, { transport: 'window-api' }),
+  certify: body => call('/certify', body, { transport: 'window-api' })
+});
+
+window.addEventListener('message', async ev => {
+  const m = ev.data;
+  if (!m || typeof m !== 'object' || m.protocol !== PROTOCOL || m.type !== 'request') return;
+  const res = await call(m.endpoint, m.body, { transport: 'postMessage', origin: ev.origin });
+  const reply = { protocol: PROTOCOL, type: 'response', id: m.id, endpoint: m.endpoint, status: res.status, body: res.body };
+  try { (ev.source || window.parent).postMessage(reply, ev.origin && ev.origin !== 'null' ? ev.origin : '*'); } catch { /* source gone */ }
+});
+
+function announce() {
+  const hello = { protocol: PROTOCOL, type: 'hello', manifest: new URL('agents.json', location.href).href, endpoints: Object.keys(ENDPOINTS) };
+  [window.opener, window.parent !== window ? window.parent : null].forEach(w => { try { w && w.postMessage(hello, '*'); } catch { /* ignore */ } });
+  window.dispatchEvent(new CustomEvent('fairsquare:ready', { detail: hello }));
+}
+
+function registerWebMCP() {
+  const mc = navigator.modelContext;
+  if (!mc) return false;
+  const tools = MANIFEST.endpoints.map(ep => ({
+    name: ep.bindings.webmcp, description: ep.description, inputSchema: ep.request,
+    execute: async args => {
+      const r = await call(ep.path, args, { transport: 'webmcp' });
+      return { content: [{ type: 'text', text: JSON.stringify(r.body) }] };
+    }
+  }));
+  try {
+    if (typeof mc.registerTool === 'function') { tools.forEach(t => mc.registerTool(t)); return true; }
+    if (typeof mc.provideContext === 'function') { mc.provideContext({ tools }); return true; }
+  } catch (e) { console.warn('[FairSquare] WebMCP registration failed', e); }
+  return false;
+}
+
+async function handleUrlQuery() {
+  const p = new URLSearchParams(location.search);
+  const ep = p.get('endpoint');
+  if (!ep) return;
+  let body = {};
+  if (p.get('body')) {
+    try { body = JSON.parse(p.get('body')); } catch { body = { __error: 'body is not valid JSON' }; }
+  } else {
+    ['action', 'sessionId', 'item', 'topic'].forEach(k => p.has(k) && (body[k] = p.get(k)));
+    if (p.has('price')) body.offer = { price: +p.get('price'), deliveryDays: +p.get('deliveryDays'), warrantyMonths: +p.get('warrantyMonths') };
+    if (p.has('agentId')) body.agent = { id: p.get('agentId') };
+  }
+  const res = await call(ep, body, { transport: 'url-query' });
+  const json = JSON.stringify(res, null, 2);
+  if (p.get('format') === 'json') {
+    document.body.innerHTML = '';
+    const pre = document.createElement('pre');
+    pre.id = 'agent-response'; pre.setAttribute('data-fairsquare-response', '');
+    pre.style.cssText = 'margin:0;padding:16px;background:#fff;color:#000;max-height:none;border-radius:0';
+    pre.textContent = json;
+    document.body.append(pre);
+    return 'json-only';
+  }
+  $('#agent-response').textContent = json;
+  $('#agent-response-wrap').hidden = false;
+}
+
+/* ============================================================
+   8. Human UI (a client of the same endpoints)
+   ============================================================ */
+const ui = { sid: null, busy: false, buyerOffers: 0 };
+const UI_AGENT = { id: 'demo-user-proxy', name: 'your buyer proxy', type: 'human-proxy-agent', onBehalfOf: 'human visitor' };
+const api = (ep, body) => call(ep, body, { transport: 'ui' });
+
+function toast(t) {
+  const el = $('#toast'); el.textContent = t; el.classList.add('show');
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 2600);
+}
+const uiItem = () => catalogItem($('#item').value);
+const uiSealed = () => ({ baseValue: +$('#v-base').value, warrantyValuePerMonth: +$('#v-war').value, delayCostPerDay: +$('#v-delay').value });
+const uiMode = () => document.querySelector('input[name=mode]:checked').value;
+
+function fillValuation() {
+  const v = uiItem().referenceBuyerValuation;
+  $('#v-base').value = v.baseValue; $('#v-war').value = v.warrantyValuePerMonth; $('#v-delay').value = v.delayCostPerDay;
+}
+
+function setMeter(id, val, th) {
+  $('#m-' + id).textContent = val == null ? '—' : val.toFixed(2);
+  $('#b-' + id).style.width = val == null ? '0' : (val * 100) + '%';
+  $('#b-' + id).style.background = th == null || val == null ? 'var(--ink)' : val >= th ? 'var(--referee)' : 'var(--bad)';
+  const t = $('#t-' + id); if (t) { t.style.left = th == null ? '-10px' : (th * 100) + '%'; }
+}
+
+function renderReferee(v) {
+  const p = v && (v.certificate ? null : v.refereePreview);
+  const c = v && v.certificate;
+  const th = FAIR().thresholds;
+  const src = c ? c.fairness : p;
+  setMeter('balance', src ? src.balance : null, th.balance);
+  setMeter('eff', src ? src.efficiency : null, th.efficiency);
+  setMeter('nc', src ? src.noCoercion : null, th.noCoercion);
+  setMeter('overall', src ? src.overall : null, null);
+  const verdict = $('#ref-verdict');
+  if (c) {
+    verdict.innerHTML = c.verdict === 'certified' ? '<span class="ok">✓ Certified fair</span>' : '<span class="no">✗ Certification refused</span>';
+    $('#ref-basis').textContent = `Final verdict on the agreed deal (effective price ${money(c.deal.effectivePrice)}).`;
+  } else if (p) {
+    verdict.innerHTML = p.certifiable ? '<span class="ok">Certifiable</span>' : '<span class="no">Not certifiable</span>';
+    $('#ref-basis').textContent = {
+      merchant: `Scoring the merchant's round-${p.round} offer.`, buyer: `Scoring the buyer's latest offer.`,
+      agreement: 'Scoring the agreed deal. Request a certificate to get a signed verdict.'
+    }[p.basis] || '';
+  } else { verdict.textContent = '—'; $('#ref-basis').textContent = 'Scores the offer currently on the table.'; }
+
+  const share = p ? p.surplusShare : null;
+  const split = $('#split');
+  if (share) {
+    split.innerHTML = `<span style="width:${share.merchant * 100}%;background:var(--merchant)">Merchant ${Math.round(share.merchant * 100)}%</span><span style="width:${share.buyer * 100}%;background:var(--buyer)">Buyer ${Math.round(share.buyer * 100)}%</span>`;
+  } else if (c) {
+    split.innerHTML = '<span style="width:100%;background:var(--line);color:var(--muted)">See certificate</span>';
+  } else {
+    split.innerHTML = `<span style="width:100%;background:var(--line);color:var(--muted)">${p ? 'One side loses at this offer' : '—'}</span>`;
+  }
+
+  const checks = c ? c.checks.map(x => ({ id: x.id, pass: x.pass, label: (MANIFEST.fairness.checks.find(k => k.id === x.id) || {}).rule || x.id })) : (p ? p.checks : []);
+  $('#checks').innerHTML = checks.map(k => `<li><span class="${k.pass === true ? 'ok' : k.pass === false ? 'no' : 'na'}">${k.pass === true ? '✓' : k.pass === false ? '✗' : '•'}</span><span>${esc(k.label)}</span></li>`).join('');
+
+  const pre = $('#cert');
+  pre.hidden = !c; pre.textContent = c ? JSON.stringify(c, null, 2) : '';
+  $('#btn-verify').disabled = !c; $('#btn-download').disabled = !c;
+  $('#btn-certify').disabled = !(v && v.status === 'agreed' && !c);
+  if (!c) $('#verify-result').textContent = '';
+}
+
+const AV = { merchant: 'M', referee: 'R', concierge: 'C', buyer: 'B' };
+function renderTranscript(v) {
+  const box = $('#transcript');
+  if (!v) { box.innerHTML = '<div class="empty">No session yet. Open one, or point an agent at <code>agents.json</code>.</div>'; return; }
+  box.innerHTML = v.transcript.map(e => {
+    const who = e.from === 'buyer' ? (v.buyer.name || v.buyer.id) : e.from;
+    let terms = '';
+    if (e.offer) {
+      const o = e.offer, fees = feeTotal(o.fees);
+      terms = `<div class="terms">${money(o.price)}${fees ? ` + ${money(fees)} fees` : ''} · ${o.deliveryDays}-day delivery · ${o.warrantyMonths}-mo warranty`
+        + (o.final ? '<span class="badge b-bad">FINAL</span>' : '')
+        + (o.expiresInSec && o.expiresInSec < 60 ? `<span class="badge b-warn">expires ${o.expiresInSec}s</span>` : '') + '</div>';
+    }
+    let chip = '';
+    if (e.preview) {
+      const f = e.preview.failedChecks;
+      chip = e.preview.certifiable
+        ? `<div class="chip">Referee ✓ certifiable · overall ${e.preview.overall.toFixed(2)}</div>`
+        : `<div class="chip fail">Referee ✗ ${f.length ? esc(f.join(', ')) : 'below thresholds'} · balance ${e.preview.balance.toFixed(2)} · efficiency ${e.preview.efficiency.toFixed(2)}</div>`;
+    }
+    return `<div class="msg ${e.from}"><div class="av">${AV[e.from] || '?'}</div><div>
+      <div class="hd"><b>${esc(who)}</b> · ${esc(e.action)}${e.round ? ` · round ${e.round}` : ''}</div>
+      ${terms}${e.message ? `<div>${esc(e.message)}</div>` : ''}${chip}</div></div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function renderSessionList() {
+  const sel = $('#session-select');
+  const ids = Object.keys(state.sessions).sort((a, b) => state.sessions[b].createdAt.localeCompare(state.sessions[a].createdAt));
+  sel.innerHTML = ids.length
+    ? ids.map(id => { const s = state.sessions[id]; return `<option value="${id}" ${id === ui.sid ? 'selected' : ''}>${esc(s.agent.id)} · ${esc(s.item)} · ${s.status}</option>`; }).join('')
+    : '<option value="">no sessions</option>';
+}
+
+async function refresh() {
+  renderSessionList();
+  if (!ui.sid || !state.sessions[ui.sid]) { renderTranscript(null); renderReferee(null); updateButtons(null); return null; }
+  const v = (await api('/negotiate', { action: 'status', sessionId: ui.sid })).body;
+  renderTranscript(v); renderReferee(v); updateButtons(v);
+  const lastC = [...v.transcript].reverse().find(e => e.from === 'concierge');
+  if (lastC) $('#concierge-text').textContent = lastC.message;
+  if (v.status === 'open' && v.merchantOffer && !$('#o-price').dataset.touched) {
+    $('#o-days').value = v.merchantOffer.deliveryDays; $('#o-war').value = v.merchantOffer.warrantyMonths;
+  }
+  return v;
+}
+function updateButtons(v) {
+  const open = v && v.status === 'open';
+  ['#btn-offer', '#btn-accept', '#btn-reject'].forEach(s => $(s).disabled = !open || ui.busy);
+  $('#btn-open').disabled = ui.busy; $('#btn-auto').disabled = ui.busy;
+}
+
+async function openFromUI() {
+  const res = await api('/negotiate', { action: 'open', item: uiItem().sku, agent: UI_AGENT, sealed: uiSealed(), demo: { merchantMode: uiMode() } });
+  if (res.status !== 200) { toast(res.body.error); return null; }
+  ui.sid = res.body.sessionId; ui.buyerOffers = 0; delete $('#o-price').dataset.touched;
+  return refresh();
+}
+
+/* Buyer proxy agent: integrative on terms, time-dependent concession on price. */
+const buyerAgent = {
+  nextOffer(item, v, k, R, merchantOffer) {
+    const terms = k === 1 || !merchantOffer
+      ? bestTerms(item, (d, w) => buyerValue(item, v, d, w) - publishedPrice(item, d, w)).terms
+      : { deliveryDays: merchantOffer.deliveryDays, warrantyMonths: merchantOffer.warrantyMonths };
+    const value = buyerValue(item, v, terms.deliveryDays, terms.warrantyMonths);
+    const reservation = value - Math.max(1, 0.03 * value);
+    const start = Math.min(0.55 * publishedPrice(item, terms.deliveryDays, terms.warrantyMonths), reservation * 0.6);
+    const t = R <= 1 ? 1 : clamp((k - 1) / (R - 1), 0, 1);
+    const price = Math.round(Math.min(reservation, start + (reservation - start) * Math.pow(t, 0.9)));
+    return { price: Math.max(0, price), ...terms, value };
+  }
+};
+
+async function autoNegotiate() {
+  if (ui.busy) return;
+  let v = ui.sid && state.sessions[ui.sid] ? (await api('/negotiate', { action: 'status', sessionId: ui.sid })).body : null;
+  if (!v || v.status !== 'open') v = await openFromUI();
+  if (!v) return;
+  ui.busy = true; updateButtons(v);
+  const item = catalogItem(v.item), prefs = sanitizeSealed(uiSealed(), item).params;
+  try {
+    while (v.status === 'open') {
+      await sleep(550);
+      const mo = v.merchantOffer;
+      const mine = buyerAgent.nextOffer(item, prefs, ui.buyerOffers + 1, v.maxRounds, mo);
+      const moSurplus = buyerValue(item, prefs, mo.deliveryDays, mo.warrantyMonths) - mo.price - feeTotal(mo.fees);
+      const mySurplus = mine.value - mine.price;
+      if (moSurplus >= 0 && (moSurplus >= mySurplus || v.round >= v.maxRounds)) {
+        if ($('#preclear').checked) {
+          const pre = (await api('/certify', { action: 'preview', sessionId: v.sessionId })).body.preview;
+          if (!pre.certifiable) {
+            await api('/negotiate', { action: 'reject', sessionId: v.sessionId, reason: `Referee pre-clearance failed (${pre.failedChecks.join(', ') || 'below thresholds'}). Walking away.` });
+            break;
+          }
+        }
+        await api('/negotiate', { action: 'accept', sessionId: v.sessionId });
+        break;
+      }
+      if (v.round >= v.maxRounds) { await api('/negotiate', { action: 'reject', sessionId: v.sessionId, reason: 'No acceptable offer within the round limit.' }); break; }
+      ui.buyerOffers++;
+      const r = await api('/negotiate', { action: 'offer', sessionId: v.sessionId, offer: { price: mine.price, deliveryDays: mine.deliveryDays, warrantyMonths: mine.warrantyMonths } });
+      if (r.status !== 200) { toast(r.body.error); break; }
+      v = r.body;
+      await refresh();
+    }
+  } finally {
+    ui.busy = false;
+    v = await refresh();
+    if (v && v.status === 'agreed') toast('Deal reached. Request a certificate from the referee.');
+  }
+}
+
+let lastCert = null;
+function bindUI() {
+  $('#item').innerHTML = catalog().map(i => `<option value="${i.sku}">${esc(i.name)} — ${money(i.listPrice)}</option>`).join('');
+  fillValuation();
+  $('#item').addEventListener('change', fillValuation);
+  $('#btn-open').addEventListener('click', openFromUI);
+  $('#btn-auto').addEventListener('click', autoNegotiate);
+  $('#o-price').addEventListener('input', e => e.target.dataset.touched = '1');
+  $('#btn-offer').addEventListener('click', async () => {
+    ui.buyerOffers++;
+    const r = await api('/negotiate', { action: 'offer', sessionId: ui.sid, offer: { price: +$('#o-price').value, deliveryDays: +$('#o-days').value, warrantyMonths: +$('#o-war').value } });
+    if (r.status !== 200) toast(r.body.error);
+    refresh();
+  });
+  $('#btn-accept').addEventListener('click', async () => { const r = await api('/negotiate', { action: 'accept', sessionId: ui.sid }); if (r.status !== 200) toast(r.body.error); refresh(); });
+  $('#btn-reject').addEventListener('click', async () => { await api('/negotiate', { action: 'reject', sessionId: ui.sid }); refresh(); });
+  $('#btn-suggest').addEventListener('click', async () => {
+    const r = (await api('/inspect', { topic: 'tips', item: uiItem().sku, sealed: uiSealed() })).body;
+    const s = r.concierge.suggestion;
+    $('#concierge-text').textContent = s.rationale;
+    $('#o-price').value = s.openingPrice; $('#o-days').value = s.terms.deliveryDays; $('#o-war').value = s.terms.warrantyMonths;
+    $('#o-price').dataset.touched = '1';
+  });
+  $('#btn-certify').addEventListener('click', async () => {
+    const r = await api('/certify', { action: 'issue', sessionId: ui.sid });
+    if (r.status !== 200) return toast(r.body.error);
+    lastCert = r.body.certificate;
+    await refresh();
+    $('#btn-verify').click();
+  });
+  $('#btn-verify').addEventListener('click', async () => {
+    const v = await refresh(); const cert = v && v.certificate; if (!cert) return;
+    const r = (await api('/certify', { action: 'verify', certificate: cert })).body;
+    const x = r.verification || {};
+    $('#verify-result').innerHTML = x.signatureValid
+      ? `<span class="ok">✓ Signature valid</span> · ${x.issuerKeyMatchesSite ? 'signed by this site\'s referee key' : '<span class="no">different issuer key</span>'} · verdict: <b>${esc(x.verdict)}</b>`
+      : `<span class="no">✗ Signature invalid</span>${r.error ? ' — ' + esc(r.error) : ''}`;
+  });
+  $('#btn-download').addEventListener('click', async () => {
+    const v = await refresh(); const cert = v && v.certificate; if (!cert) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(cert, null, 2)], { type: 'application/json' }));
+    a.download = `${cert.id}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('#session-select').addEventListener('change', e => { ui.sid = e.target.value || null; refresh(); });
+
+  // Console
+  const EX = {
+    '/inspect': { 'Overview': { topic: 'overview' }, 'Suggest terms': { topic: 'tips', item: 'laptop-refurb-14', sealed: { baseValue: 470, warrantyValuePerMonth: 7, delayCostPerDay: 6 } }, 'Referee key': { topic: 'keys' } },
+    '/negotiate': {
+      'Open (fair)': { action: 'open', item: 'bike-tuneup', agent: { id: 'console-agent', type: 'agent' }, sealed: { baseValue: 120, warrantyValuePerMonth: 2.5, delayCostPerDay: 2.5 } },
+      'Open (hardball demo)': { action: 'open', item: 'bike-tuneup', agent: { id: 'console-agent' }, demo: { merchantMode: 'hardball' } },
+      'Offer': () => ({ action: 'offer', sessionId: ui.sid || '<sessionId>', offer: { price: 80, deliveryDays: 10, warrantyMonths: 12 } }),
+      'Accept': () => ({ action: 'accept', sessionId: ui.sid || '<sessionId>' }),
+      'Status': () => ({ action: 'status', sessionId: ui.sid || '<sessionId>' })
+    },
+    '/certify': {
+      'Preview': () => ({ action: 'preview', sessionId: ui.sid || '<sessionId>' }),
+      'Issue': () => ({ action: 'issue', sessionId: ui.sid || '<sessionId>' }),
+      'Verify current': () => { const s = ui.sid && state.sessions[ui.sid]; return { action: 'verify', certificate: s && s.certificateId ? state.certs[s.certificateId] : {} }; }
+    }
+  };
+  const loadExamples = () => {
+    const ep = $('#c-endpoint').value;
+    $('#c-example').innerHTML = Object.keys(EX[ep]).map(k => `<option>${esc(k)}</option>`).join('');
+    loadExample();
+  };
+  const loadExample = () => {
+    const ex = EX[$('#c-endpoint').value][$('#c-example').value];
+    $('#c-body').value = JSON.stringify(typeof ex === 'function' ? ex() : ex, null, 2);
+  };
+  $('#c-endpoint').addEventListener('change', loadExamples);
+  $('#c-example').addEventListener('change', loadExample);
+  loadExamples();
+  $('#c-send').addEventListener('click', async () => {
+    let body;
+    try { body = JSON.parse($('#c-body').value || '{}'); } catch { $('#c-out').textContent = 'Invalid JSON'; return; }
+    const r = await call($('#c-endpoint').value, body, { transport: 'console' });
+    $('#c-out').textContent = JSON.stringify(r, null, 2);
+    if (r.body && r.body.sessionId && state.sessions[r.body.sessionId]) { ui.sid = r.body.sessionId; }
+    refresh();
+  });
+  const origin = new URL('.', location.href).href;
+  $('#snippets').textContent =
+`// 1) Same-page / browser-driving agent
+const r = await window.FairSquare.call('/negotiate', {
+  action: 'open', item: 'laptop-refurb-14',
+  agent: { id: 'my-agent', type: 'agent', onBehalfOf: 'alice' },
+  sealed: { baseValue: 500, warrantyValuePerMonth: 6, delayCostPerDay: 5 }
+});
+
+// 2) Cross-origin agent via postMessage
+const w = window.open('${origin}');          // or an <iframe src>
+window.addEventListener('message', e => {
+  if (e.data?.protocol !== '${PROTOCOL}') return;
+  if (e.data.type === 'hello') w.postMessage({ protocol: '${PROTOCOL}', type: 'request',
+    id: '1', endpoint: '/inspect', body: { topic: 'overview' } }, '*');
+  if (e.data.type === 'response') console.log(e.data.id, e.data.body);
+});
+
+// 3) URL-only agent (reads JSON from the page)
+${origin}?endpoint=/negotiate&action=open&item=bike-tuneup&agentId=my-agent&format=json
+${origin}?endpoint=/negotiate&action=offer&sessionId=<id>&price=80&deliveryDays=10&warrantyMonths=12&format=json
+${origin}?endpoint=/certify&action=issue&sessionId=<id>&format=json
+
+// 4) WebMCP (if navigator.modelContext exists): tools fairsquare_inspect,
+//    fairsquare_negotiate, fairsquare_certify are registered automatically.`;
+
+  // Live updates from visiting agents
+  listeners.add(({ res, ctx }) => {
+    if (ctx.transport === 'ui') return;
+    const sid = res.body && res.body.sessionId;
+    if (!sid) return;
+    if (!ui.sid) ui.sid = sid;
+    if (ctx.transport !== 'console') toast(`Visiting agent via ${ctx.transport}: ${res.body.status || 'update'} (${sid.slice(0, 12)}…)`);
+    refresh();
+  });
+}
+
+/* ============================================================
+   9. Boot
+   ============================================================ */
+async function boot() {
+  try {
+    const r = await fetch('agents.json', { cache: 'no-cache' });
+    if (r.ok) { const m = await r.json(); if (m && m.agents && m.endpoints && m.catalog) MANIFEST = m; }
+  } catch { /* file:// or offline: inline manifest is used */ }
+  await initKeys();
+  $('#kid-label').textContent = keys.kid ? `· ${keys.kid.slice(0, 8)}` : '· unsigned';
+  const webmcp = registerWebMCP();
+  if (await handleUrlQuery() === 'json-only') { announce(); return; }
+  bindUI();
+  const latest = Object.values(state.sessions).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  ui.sid = latest ? latest.id : null;
+  await refresh();
+  if (!hasSubtle) toast('Open over https or localhost to enable signed certificates.');
+  document.documentElement.dataset.fairsquareReady = webmcp ? 'webmcp' : 'true';
+  announce();
+}
+boot();
+})();
+</script>
+</body>
+</html>
