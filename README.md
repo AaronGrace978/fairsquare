@@ -7,12 +7,54 @@
 A visiting agent (or a human's buyer-proxy agent) negotiates price, delivery and warranty with FairSquare's **merchant** agent. A neutral **referee** agent scores every proposed deal with a Jain fairness function (balance, efficiency, no-coercion) and signs a **proof-of-fairness certificate** (ES256) — or a signed refusal record when the deal fails. A **concierge** agent onboards visitors and flags policy violations live.
 
 - Live: https://aarongrace978.github.io/fairsquare/
-- Manifest: [`agents.json`](agents.json) (mirrored at [`.well-known/agents.json`](.well-known/agents.json) and inline in `index.html`)
+- Demo video (87 s): [`docs/fairsquare-demo.mp4`](docs/fairsquare-demo.mp4)
+- Canonical discovery (MVP Profile 0.3): [`agent-manifest.json`](agent-manifest.json) → [`fairsquare.network.json`](fairsquare.network.json), [`links.json`](links.json)
+- Profile extension: [`agents.json`](agents.json) (mirrored at [`.well-known/agents.json`](.well-known/agents.json) and inline in `index.html`)
 - License: MIT · No build step · No dependencies · Pure browser JS
 
 | Fair merchant → certified | Hardball merchant → signed refusal |
 |---|---|
 | ![Fair negotiation certified](docs/screenshot-fair.png) | ![Hardball negotiation refused](docs/screenshot-hardball.png) |
+
+## The story
+
+Agents are starting to buy and sell on people's behalf, and the person on the other side of the deal is usually the one with less power. FairSquare gives that person an agent, and gives the deal a referee.
+
+The challenge's normative spec, the *Minimum Viable Specification for a Worldwide Agentic Web* (MVP Profile 0.3, Cognizant AI Lab, 18 November 2026), names this exact direction in **Section 7, "Extensions and Community Opportunities"**:
+
+> **Transactions negotiation and arbitration** — "Policy-bound mandates, sealed bids, deterministic negotiation, settlement controls, and auditable receipts through a trusted arbiter."
+
+Section 7 lists this as an extension outside the minimum profile. **FairSquare ships an implementation of it today**, live, not as a roadmap item:
+
+| Section 7 element | FairSquare today |
+|---|---|
+| Policy-bound mandates | Merchant policy (`maxRounds`, `noUltimatumBeforeRound`, `minResponseWindowSec`, `allFeesDisclosed`) is published in the manifest and enforced by the referee's checks |
+| Sealed bids | Buyer and merchant valuations are sealed to the referee; only SHA-256 commitments are published |
+| Deterministic negotiation | The merchant and buyer agents use deterministic, reproducible concession strategies |
+| Auditable receipts through a trusted arbiter | The referee signs every outcome (certificate **or** refusal) with ES256 over canonical JSON, including a transcript hash; anyone can verify it via `/certify` |
+| Settlement controls | Not implemented. Deals end at agreement plus certificate; no payment or settlement step |
+
+## Section 6 conformance self-audit (MVP Profile 0.3)
+
+The spec's Section 6 lists seven checks an implementation must demonstrate "without publisher-specific integration code". Results for this commit:
+
+- **Network definition:** validated with the reference runtime's own validator (`validate_shape`, `validate_missing_nodes`, `validate_front_man`, `validate_network` from `cognizant-ai-labs/agentic-web` → `skills/agentify-website/runtime`). All four return no errors.
+- **Live URLs:** confirmed after deploy (see the Verification note).
+- **Scoring:** a check counts as PASS only when the behaviour is demonstrated as the spec words it.
+
+| # | Section 6 check | Result | Evidence (live URL) | Notes |
+|---|---|---|---|---|
+| 1 | Publish a two-agent HOCON network and a manifest from an ordinary HTTPS web host | **PASS** | https://aarongrace978.github.io/fairsquare/agent-manifest.json · https://aarongrace978.github.io/fairsquare/fairsquare.network.json | Three agents (`concierge` front, `merchant`, `referee`), resolved data-only JSON; static GitHub Pages over HTTPS |
+| 2 | Load and run that network in a browser with the site's published default router and model; if BYOK is offered, also the user-selected path | **FAIL** | https://aarongrace978.github.io/fairsquare/ | The network is executed by FairSquare's deterministic JavaScript runtime, not by an LLM router. `llm_router.base_url` is `null` and `byok` is `false` |
+| 3 | Call an internal agent and at least one grounded capability through MCP or a registered local site action | **FAIL** | https://aarongrace978.github.io/fairsquare/?endpoint=/inspect&format=json | Internal delegation (concierge → merchant → referee) and callable capabilities (`/inspect`, `/negotiate`, `/certify`) exist, but they are not yet registered as Profile 0.3 site actions or exposed through MCP |
+| 4 | After user approval, load an exact named network from a second origin and run it locally | **FAIL** | https://aarongrace978.github.io/fairsquare/links.json | FairSquare loads no peers (`peer_policy.mode: closed`, `allowed_peers: []`). The reverse works: its own network is declarative and validator-clean for other runtimes to load |
+| 5 | When a user key is active, show the second site never receives it and cannot change the caller's router | **FAIL** | https://aarongrace978.github.io/fairsquare/agent-manifest.json | No BYOK offered and no peer loading, so not demonstrable |
+| 6 | Show private context is absent at the peer unless a named field is explicitly allowed | **FAIL** | https://aarongrace978.github.io/fairsquare/fairsquare.network.json | Every agent declares deny-all `allow.to_downstream/to_upstream.sly_data: []`, and sealed valuations never leave the referee. The runtime check is not demonstrated |
+| 7 | Stop an invalid network, a composition cycle, an over-budget request and a denied origin with visible errors | **FAIL** | https://aarongrace978.github.io/fairsquare/?endpoint=/negotiate&action=offer&sessionId=bad&format=json | Endpoints fail closed with visible errors (404/409/400), and the 8-round limit is a budget. Network-level invalid/cycle/denied-origin handling needs a Profile 0.3 runtime |
+
+**Score: 1 / 7 PASS.** Checks 2 to 7 need FairSquare's agents to run inside a Profile 0.3 browser runtime (for example the reference nsDeploy runtime). That means an LLM-driven `concierge`, `/negotiate` `/inspect` `/certify` registered as site actions, a default router with optional BYOK, peer loading under consent, and fail-closed network validation. That integration is the next milestone. The deterministic referee stays the binding arbiter: agents coordinate, deterministic code decides.
+
+**Verification note:** the local build of this commit was served as static files and every URL above returned HTTP 200. The live URLs are re-checked after GitHub Pages deploys.
 
 ## Run it
 
@@ -29,12 +71,15 @@ Deploying to GitHub Pages: push the repo, enable Pages from the default branch a
 
 | File | Purpose |
 |---|---|
-| `agents.json` | Agent-network manifest (agents, endpoints, schemas, transports, fairness function, catalog) |
-| `.well-known/agents.json` | Well-known discovery copy |
+| `agent-manifest.json` | **MVP Profile 0.3** agent-site manifest: network `fairsquare`, `front_man` `concierge`, `hocon` → `fairsquare.network.json`, `llm_router`, `peer_policy`, `allowed_peers`, `linking` |
+| `fairsquare.network.json` | **MVP Profile 0.3** resolved, data-only network definition (Neuro SAN data model): `concierge` (front) → `merchant`, `referee`; public instructions; deny-by-default `allow.sly_data` rules |
+| `links.json` | **MVP Profile 0.3** peer-network link map (`version: 1`; no peers bound yet) |
+| `agents.json` | **Profile extension**: FairSquare's own layer (agent visitors as first-class principals, window/postMessage/WebMCP/URL transports, endpoints with schemas, fairness function, catalog) |
+| `.well-known/agents.json` | Well-known copy of the profile extension |
 | `index.html` | Single-file in-browser runtime + human UI |
 | `build.py` | Optional: re-syncs `agents.json` into `index.html` and `.well-known/` after edits |
 | `.nojekyll` | Lets GitHub Pages serve `.well-known/` |
-| `docs/` | Banner and screenshots |
+| `docs/` | Banner, screenshots, demo video |
 
 ---
 
@@ -42,7 +87,9 @@ Deploying to GitHub Pages: push the repo, enable Pages from the default branch a
 
 The challenge defines an agentified website as **(1)** an agent-network manifest, **(2)** an in-browser runtime that serves the manifest and lets any visiting agent negotiate with the site, and **(3)** a human-facing UI. Each is mapped below to where it lives and how to check it in under a minute.
 
-### 1. Agent-network manifest — `agents.json`
+### 1. Agent-network manifest — `agent-manifest.json` (Profile 0.3) + `agents.json` (Profile extension)
+
+`agent-manifest.json` is the canonical discovery point required by MVP Profile 0.3 §3.3. `agents.json` is labelled **Profile extension**. It is unchanged, and it carries the FairSquare-specific contract described below.
 
 | Requirement | Where | How to verify |
 |---|---|---|
@@ -115,7 +162,7 @@ The signature is ES256 (P-256, IEEE P1363 r‖s) over the canonical JSON (keys s
 
 1. Open the site and click **Auto-negotiate** (merchant: *Fair*). The deal converges near an equal split on efficient terms. Click **Request certificate** → *Certified fair*, signature valid.
 2. Switch the merchant to **Hardball** and auto-negotiate again. Watch the concierge flag the 20-second ultimatum. The deal looks cheap, but the referee finds an undisclosed fee and issues a **signed refusal** listing every violation.
-3. Tick **pre-clear** and repeat. This time the buyer agent consults the referee first and walks away.
+3. Tick **pre-clear** and repeat. The buyer agent now consults the referee every round, and walks away as soon as the referee reports coercion.
 4. In the **Agent console**, edit any certificate field and verify it → `signatureValid: false`.
 5. As an outside agent, open `?endpoint=/inspect&format=json` in a fresh tab.
 

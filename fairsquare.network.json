@@ -1,0 +1,145 @@
+{
+  "metadata": {
+    "description": "FairSquare: multi-issue negotiation between a visitor's agent and a merchant, refereed by a neutral fairness arbiter that issues signed certificates.",
+    "license": "MIT",
+    "source": "https://aarongrace978.github.io/fairsquare/agents.json",
+    "execution_note": "Resolved, data-only definition. In this version the agents are executed by deterministic JavaScript (index.html); instructions describe that behaviour and are public by design."
+  },
+  "tools": [
+    {
+      "name": "concierge",
+      "function": {
+        "description": "Front agent. Explains FairSquare, suggests opening terms from the visitor's own valuation, and routes negotiation and certification requests.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "request": {
+              "type": "string",
+              "description": "The request in plain language."
+            }
+          },
+          "required": [
+            "request"
+          ]
+        }
+      },
+      "instructions": "You are the FairSquare concierge. Greet the visitor (human or agent) as a first-class principal. Explain that price, delivery days (1-14) and warranty months (0-24) are negotiable for each catalog item. Suggest opening terms that maximise the visitor's stated value minus the published surcharges. Send negotiation moves to merchant and fairness questions to referee. Flag any merchant ultimatum before round 3 or any response window under 60 seconds as a policy violation. Never ask for or pass on the visitor's private valuation; it is sealed directly with the referee.",
+      "tools": [
+        "merchant",
+        "referee"
+      ],
+      "allow": {
+        "to_downstream": {
+          "sly_data": []
+        },
+        "to_upstream": {
+          "sly_data": []
+        }
+      }
+    },
+    {
+      "name": "merchant",
+      "function": {
+        "description": "Seller. Negotiates price, delivery and warranty for catalog items over at most 8 rounds.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "open",
+                "offer",
+                "accept",
+                "reject",
+                "status"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "item": {
+              "type": "string"
+            },
+            "offer": {
+              "type": "object",
+              "properties": {
+                "price": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "deliveryDays": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 14
+                },
+                "warrantyMonths": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 24
+                }
+              },
+              "required": [
+                "price",
+                "deliveryDays",
+                "warrantyMonths"
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      "instructions": "You are the FairSquare merchant. Propose the delivery and warranty terms that maximise joint value under your prior of buyer preferences, then concede on price over rounds with a time-dependent schedule. Accept any buyer offer that meets your current target. Disclose every fee. Do not mark an offer final before round 3. Always allow at least 60 seconds to respond. Never raise your surplus ask between rounds. Submit every offer to referee for scoring.",
+      "tools": [
+        "referee"
+      ],
+      "allow": {
+        "to_downstream": {
+          "sly_data": []
+        },
+        "to_upstream": {
+          "sly_data": []
+        }
+      }
+    },
+    {
+      "name": "referee",
+      "function": {
+        "description": "Neutral arbiter. Scores any proposed deal with a Jain fairness function and signs proof-of-fairness certificates or refusal records.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "preview",
+                "issue",
+                "verify"
+              ]
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "certificate": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      "instructions": "You are the FairSquare referee. Hold both parties' sealed valuations and publish only SHA-256 commitments. For each proposed deal compute each party's surplus at the effective price including all fees; balance = normalised Jain index (J - 1/n)/(1 - 1/n); efficiency = joint surplus / maximum joint surplus over feasible terms; no-coercion = share passed of fee transparency, no ultimatum before round 3, at least 60 s to respond, no retracted concessions and explicit consent. Certify only if both surpluses are non-negative, balance >= 0.6, efficiency >= 0.8 and no-coercion = 1.0. Sign certificates and refusal records with ES256 over canonical JSON. Never reveal either party's valuation.",
+      "tools": [],
+      "allow": {
+        "to_downstream": {
+          "sly_data": []
+        },
+        "to_upstream": {
+          "sly_data": []
+        }
+      }
+    }
+  ]
+}

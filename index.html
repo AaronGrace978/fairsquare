@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>FairSquare — negotiate with agents, certified fair</title>
 <meta name="description" content="FairSquare is an agentified website. Visiting AI agents negotiate with a merchant agent; a referee agent scores every deal with a Jain fairness function and signs proof-of-fairness certificates. Manifest: agents.json">
-<link rel="agent-manifest" type="application/json" href="agents.json">
+<link rel="agent-manifest" type="application/json" href="agent-manifest.json" title="Profile 0.3 agent-site manifest (canonical)">
+<link rel="alternate" type="application/json" title="FairSquare profile extension" href="agents.json">
 <link rel="alternate" type="application/json" title="FairSquare agent-network manifest" href=".well-known/agents.json">
-<meta name="agent-manifest" content="agents.json">
+<meta name="agent-manifest" content="agent-manifest.json">
 <meta name="agent-protocol" content="fairsquare/1.0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='1' width='14' height='14' fill='none' stroke='%231c1b19' stroke-width='2'/%3E%3Crect x='4' y='4' width='4' height='8' fill='%230f766e'/%3E%3C/svg%3E">
 <script type="application/json" id="fairsquare-manifest">{
@@ -952,6 +953,7 @@
     <span class="pill p-merchant"><i></i>Merchant</span>
     <span class="pill p-referee"><i></i>Referee <span id="kid-label"></span></span>
     <span class="pill p-concierge"><i></i>Concierge</span>
+    <a class="pill p-link" href="agent-manifest.json" target="_blank" rel="noopener">agent-manifest.json</a>
     <a class="pill p-link" href="agents.json" target="_blank" rel="noopener">agents.json</a>
     <a class="pill p-link" href="#console">Agent API</a>
   </div>
@@ -981,7 +983,7 @@
       <label><input type="radio" name="mode" value="fair" checked><span>Fair</span></label>
       <label><input type="radio" name="mode" value="hardball"><span>Hardball</span></label>
     </div>
-    <label class="check"><input type="checkbox" id="preclear"> Buyer agent asks the referee to pre-clear a deal before accepting</label>
+    <label class="check"><input type="checkbox" id="preclear"> Buyer agent consults the referee each round and walks away from coercion</label>
 
     <div class="btns">
       <button id="btn-open">Open session</button>
@@ -1041,7 +1043,7 @@
       <div>
         <div class="row2">
           <div><label for="c-endpoint">Endpoint</label>
-            <select id="c-endpoint"><option>/inspect</option><option>/negotiate</option><option>/certify</option></select></div>
+            <select id="c-endpoint"><option value="discovery">GET agent-manifest.json (canonical)</option><option>/inspect</option><option>/negotiate</option><option>/certify</option></select></div>
           <div><label for="c-example">Example</label><select id="c-example"></select></div>
         </div>
         <label for="c-body">Request body (JSON)</label>
@@ -1061,7 +1063,7 @@
 </main>
 
 <div class="for-agents" id="for-agents">
-  <strong>For agents:</strong> this site publishes an agent-network manifest at <code>agents.json</code> (also <code>.well-known/agents.json</code> and inline in <code>script#fairsquare-manifest</code>).
+  <strong>For agents:</strong> canonical discovery is <code>agent-manifest.json</code> (MVP Profile 0.3), which points to <code>fairsquare.network.json</code> and <code>links.json</code>. The FairSquare profile extension is <code>agents.json</code> (also <code>.well-known/agents.json</code> and inline in <code>script#fairsquare-manifest</code>).
   Endpoints <code>/inspect</code> (concierge), <code>/negotiate</code> (merchant) and <code>/certify</code> (referee) are served in-page via
   <code>window.FairSquare.call(endpoint, body)</code>, <code>postMessage</code> (protocol <code>fairsquare/1.0</code>), WebMCP tools when available,
   or URL query, e.g. <code>?endpoint=/inspect&amp;format=json</code>.
@@ -1080,6 +1082,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const PROTOCOL = 'fairsquare/1.0';
 const INLINE_MANIFEST = JSON.parse($('#fairsquare-manifest').textContent);
 let MANIFEST = INLINE_MANIFEST;
+let DISCOVERY = null; // agent-manifest.json (Profile 0.3), canonical discovery point
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const r4 = x => Math.round(x * 1e4) / 1e4;
@@ -1552,7 +1555,14 @@ async function inspect(b) {
       thresholds: FAIR().thresholds, weights: FAIR().weights, function: FAIR().function
     },
     concierge: { guide: concierge.guide(topic) },
-    stats: { sessions: Object.keys(state.sessions).length, certificates: Object.keys(state.certs).length }
+    stats: { sessions: Object.keys(state.sessions).length, certificates: Object.keys(state.certs).length },
+    discovery: {
+      canonical: new URL('agent-manifest.json', location.href).href,
+      network: DISCOVERY && DISCOVERY.networks && DISCOVERY.networks[0] ? new URL(DISCOVERY.networks[0].hocon, new URL('agent-manifest.json', location.href)).href : null,
+      links: new URL('links.json', location.href).href,
+      profileExtension: new URL('agents.json', location.href).href,
+      loaded: !!DISCOVERY
+    }
   };
   if (topic === 'overview' || topic === 'manifest') out.manifest = MANIFEST;
   if (topic === 'overview' || topic === 'catalog') out.catalog = catalog();
@@ -1868,6 +1878,14 @@ async function autoNegotiate() {
     while (v.status === 'open') {
       await sleep(550);
       const mo = v.merchantOffer;
+      if ($('#preclear').checked) {
+        const pre = (await api('/certify', { action: 'preview', sessionId: v.sessionId })).body.preview;
+        const coerced = pre.checks.filter(c => c.pass === false && c.id !== 'individualRationality').map(c => c.id);
+        if (coerced.length) {
+          await api('/negotiate', { action: 'reject', sessionId: v.sessionId, reason: `Referee reports coercion (${coerced.join(', ')}). Walking away before any deal can close.` });
+          break;
+        }
+      }
       const mine = buyerAgent.nextOffer(item, prefs, ui.buyerOffers + 1, v.maxRounds, mo);
       const moSurplus = buyerValue(item, prefs, mo.deliveryDays, mo.warrantyMonths) - mo.price - feeTotal(mo.fees);
       const mySurplus = mine.value - mine.price;
@@ -1944,6 +1962,7 @@ function bindUI() {
 
   // Console
   const EX = {
+    'discovery': { 'Canonical discovery': {} },
     '/inspect': { 'Overview': { topic: 'overview' }, 'Suggest terms': { topic: 'tips', item: 'laptop-refurb-14', sealed: { baseValue: 470, warrantyValuePerMonth: 7, delayCostPerDay: 6 } }, 'Referee key': { topic: 'keys' } },
     '/negotiate': {
       'Open (fair)': { action: 'open', item: 'bike-tuneup', agent: { id: 'console-agent', type: 'agent' }, sealed: { baseValue: 120, warrantyValuePerMonth: 2.5, delayCostPerDay: 2.5 } },
@@ -1960,6 +1979,7 @@ function bindUI() {
   };
   const loadExamples = () => {
     const ep = $('#c-endpoint').value;
+    $('#c-body').disabled = ep === 'discovery';
     $('#c-example').innerHTML = Object.keys(EX[ep]).map(k => `<option>${esc(k)}</option>`).join('');
     loadExample();
   };
@@ -1973,14 +1993,26 @@ function bindUI() {
   $('#c-send').addEventListener('click', async () => {
     let body;
     try { body = JSON.parse($('#c-body').value || '{}'); } catch { $('#c-out').textContent = 'Invalid JSON'; return; }
-    const r = await call($('#c-endpoint').value, body, { transport: 'console' });
+    const ep = $('#c-endpoint').value;
+    let r;
+    if (ep === 'discovery') {
+      try {
+        const res = await fetch('agent-manifest.json', { cache: 'no-cache' });
+        DISCOVERY = res.ok ? await res.json() : DISCOVERY;
+        r = { status: res.status, url: res.url, body: DISCOVERY };
+      } catch (e) { r = { status: 0, body: { error: 'agent-manifest.json unreachable: ' + e.message, cached: DISCOVERY } }; }
+    } else r = await call(ep, body, { transport: 'console' });
     $('#c-out').textContent = JSON.stringify(r, null, 2);
     if (r.body && r.body.sessionId && state.sessions[r.body.sessionId]) { ui.sid = r.body.sessionId; }
     refresh();
   });
   const origin = new URL('.', location.href).href;
   $('#snippets').textContent =
-`// 1) Same-page / browser-driving agent
+`// 0) Canonical discovery (MVP Profile 0.3)
+const m = await (await fetch('${origin}agent-manifest.json')).json();
+const net = await (await fetch(new URL(m.networks[0].hocon, '${origin}'))).json();
+
+// 1) Same-page / browser-driving agent
 const r = await window.FairSquare.call('/negotiate', {
   action: 'open', item: 'laptop-refurb-14',
   agent: { id: 'my-agent', type: 'agent', onBehalfOf: 'alice' },
@@ -2019,6 +2051,10 @@ ${origin}?endpoint=/certify&action=issue&sessionId=<id>&format=json
    9. Boot
    ============================================================ */
 async function boot() {
+  try {
+    const d = await fetch('agent-manifest.json', { cache: 'no-cache' });
+    if (d.ok) DISCOVERY = await d.json();
+  } catch { /* file:// or offline */ }
   try {
     const r = await fetch('agents.json', { cache: 'no-cache' });
     if (r.ok) { const m = await r.json(); if (m && m.agents && m.endpoints && m.catalog) MANIFEST = m; }

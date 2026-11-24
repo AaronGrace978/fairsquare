@@ -1,0 +1,78 @@
+{
+  "brand": "FairSquare",
+  "networks": [
+    {
+      "name": "fairsquare",
+      "front_man": "concierge",
+      "hocon": "./fairsquare.network.json",
+      "description": "Negotiate price, delivery and warranty with a merchant agent; a neutral referee scores every deal for fairness and signs a certificate.",
+      "tags": [
+        "agentified-website",
+        "negotiation",
+        "arbitration",
+        "fairness"
+      ],
+      "sample_queries": [
+        "What can I buy here and what is negotiable?",
+        "Open a negotiation for the refurbished laptop; my value is $470, warranty is worth $7/month to me.",
+        "Is the merchant's current offer certifiable?",
+        "Verify this fairness certificate."
+      ]
+    }
+  ],
+  "llm_router": {
+    "base_url": null,
+    "byok_router": null,
+    "model": null,
+    "mock": false,
+    "byok": false,
+    "publisher_funded": false,
+    "note": "This version runs no language model. The concierge, merchant and referee are executed by deterministic JavaScript in index.html (see ./agents.json). The network definition is published for portability; LLM execution through a Profile 0.3 runtime is planned."
+  },
+  "allowed_peers": [],
+  "peer_policy": {
+    "mode": "closed",
+    "deny_origins": [],
+    "note": "FairSquare contacts no third-party origin. Visiting agents call it; it does not call out."
+  },
+  "agent_mcp": {
+    "available": false,
+    "reason": "Static GitHub Pages bundle; no public MCP facade."
+  },
+  "theme": {
+    "primary": "#0f766e"
+  },
+  "linking": {
+    "protocol": "nsdeploy-link/v1",
+    "exports": [
+      {
+        "network": "fairsquare",
+        "front_man": "concierge",
+        "aliases": [
+          "fairsquare",
+          "concierge"
+        ],
+        "url": "fairsquare"
+      }
+    ],
+    "imports": [],
+    "link_updates": {
+      "mode": "browser-local"
+    }
+  },
+  "deployment": {
+    "mode": "static",
+    "self_contained_runtime": true,
+    "runtime": "fairsquare-deterministic/1.0",
+    "direct_byok": false,
+    "public_mcp_facade": false
+  },
+  "extensions": {
+    "fairsquare_profile_extension": {
+      "manifest": "./agents.json",
+      "well_known": "./.well-known/agents.json",
+      "protocol": "fairsquare/1.0",
+      "description": "Agent visitors as first-class principals; window API, postMessage, WebMCP and URL-query transports; /inspect, /negotiate, /certify; ES256 proof-of-fairness certificates."
+    }
+  }
+}
